@@ -12,11 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/tools/lift)
-  add_subdirectory(lift)
+project(uwin-lift)
+cmake_minimum_required(VERSION 3.2)
+
+#
+# target settings
+#
+
+set(UWIN_LIFT uwin-lift-${REMILL_LLVM_VERSION})
+
+add_executable(${UWIN_LIFT}
+  Lift.cpp
+)
+
+#
+# target settings
+#
+
+target_link_libraries(${UWIN_LIFT} PRIVATE remill RemillVersion)
+target_include_directories(${UWIN_LIFT} SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+
+if(DEFINED WIN32)
+  set(install_folder "${CMAKE_INSTALL_PREFIX}/remill")
+else()
+  set(install_folder "${CMAKE_INSTALL_PREFIX}")
 endif()
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/tools/uwin-lift)
-  add_subdirectory(uwin-lift)
-endif()
-
+install(
+  TARGETS ${UWIN_LIFT}
+  RUNTIME DESTINATION "${install_folder}/bin"
+  LIBRARY DESTINATION "${install_folder}/lib"
+)
