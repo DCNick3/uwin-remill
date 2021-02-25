@@ -756,7 +756,7 @@ static_assert(128 == sizeof(MMX), "Invalid structure packing of `MMX`.");
 
 enum : size_t { kNumVecRegisters = 32 };
 
-struct alignas(16) State final : public ArchState {
+struct alignas(16) State : public ArchState {
 
   // ArchState occupies 16 bytes.
 

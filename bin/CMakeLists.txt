@@ -14,7 +14,7 @@
 
 add_subdirectory(lift)
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/tools/uwin-lift)
+if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/uwin-lift)
   add_subdirectory(uwin-lift)
 endif()
 

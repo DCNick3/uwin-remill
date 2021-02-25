@@ -2,18 +2,20 @@
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
-
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/Support/CommandLine.h>
 #include <llvm/Linker/Linker.h>
-#include <remill/BC/Lifter.h>
-#include <remill/BC/Util.h>
-#include <remill/BC/IntrinsicTable.h>
-#include <remill/BC/Optimizer.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/IR/Verifier.h>
 #include <remill/Arch/Arch.h>
+#include <remill/Arch/Name.h>
+#include <remill/BC/IntrinsicTable.h>
+#include <remill/BC/Lifter.h>
+#include <remill/BC/Optimizer.h>
+#include <remill/BC/Util.h>
+#include <remill/OS/OS.h>
 
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <map>
 
 // For gflags definitions
@@ -30,7 +32,7 @@ DEFINE_string(bc_out, "",
               "Path to file where the LLVM bitcode should be "
               "saved.");
 
-DEFINE_string(intrinsics_filename, "", "Llvm bitcode containing "
+DEFINE_string(intrinsics_filename, INTRINSICS_BC, "Llvm bitcode containing "
               "the intrinsics. "
               "They will be copied to generated module and force-inlined.");
 DEFINE_string(basic_blocks_filename, "",
@@ -61,10 +63,14 @@ static Memory LoadCode() {
   return mem;
 }
 
-static std::vector<uint64_t> LoadBasicBlockAddresses() {
+static std::vector<uint64_t> LoadTraceHeadAddresses() {
   // mock code
   std::vector<uint64_t> res;
   std::ifstream f(FLAGS_basic_blocks_filename, std::ios_base::in);
+  if (!f.is_open()) {
+    throw std::runtime_error("Can't open basic blocks file");
+  }
+
   while (true) {
     std::uint64_t r;
     f >> r;
@@ -78,14 +84,29 @@ class SimpleTraceManager : public remill::TraceManager {
  public:
   ~SimpleTraceManager() override = default;
 
-  explicit SimpleTraceManager(Memory &memory_) : memory(memory_) {}
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "VirtualCallInCtorOrDtor"
+  template<typename Generator>
+  explicit SimpleTraceManager(
+      llvm::Module *module,
+      Memory &memory_,
+      Generator const& trace_heads_generator) : memory(memory_) {
+    for (auto const& addr : trace_heads_generator)
+    {
+      traces[addr].function = remill::DeclareLiftedFunction(module, TraceName(addr));
+    }
+  }
+#pragma clang diagnostic pop
 
  protected:
   // Called when we have lifted, i.e. defined the contents, of a new trace.
   // The derived class is expected to do something useful with this.
   void SetLiftedTraceDefinition(uint64_t addr,
                                 llvm::Function *lifted_func) override {
-    traces[addr] = lifted_func;
+    auto& trace = traces[addr];
+    assert(trace.function == lifted_func || trace.function == nullptr);
+    trace.function = lifted_func;
+    trace.lifted = true;
   }
 
   // Get a declaration for a lifted trace. The idea here is that a derived
@@ -98,7 +119,7 @@ class SimpleTraceManager : public remill::TraceManager {
   llvm::Function *GetLiftedTraceDeclaration(uint64_t addr) override {
     auto trace_it = traces.find(addr);
     if (trace_it != traces.end()) {
-      return trace_it->second;
+      return trace_it->second.function;
     } else {
       return nullptr;
     }
@@ -106,9 +127,16 @@ class SimpleTraceManager : public remill::TraceManager {
 
   // Get a definition for a lifted trace.
   //
+  // Used by TraceLifter to check whether the trace was already lifted (only)
+  //
   // NOTE: This is permitted to return a function from an arbitrary module.
   llvm::Function *GetLiftedTraceDefinition(uint64_t addr) override {
-    return GetLiftedTraceDeclaration(addr);
+    auto trace_it = traces.find(addr);
+    if (trace_it != traces.end() && trace_it->second.lifted) {
+      return trace_it->second.function;
+    } else {
+      return nullptr;
+    }
   }
 
   // Try to read an executable byte of memory. Returns `true` of the byte
@@ -125,8 +153,23 @@ class SimpleTraceManager : public remill::TraceManager {
   }
 
  public:
+  struct Trace {
+    llvm::Function* function{nullptr};
+    bool lifted{false};
+  };
+
+  std::unordered_map<std::uint64_t, llvm::Function*> GetDeclaredTraces() {
+      decltype(GetDeclaredTraces()) res;
+      for (auto& trace : traces) {
+        if (trace.second.lifted) {
+          res.emplace(trace.first, trace.second.function);
+        }
+      }
+      return res;
+  }
+
   Memory &memory;
-  std::unordered_map<uint64_t, llvm::Function *> traces;
+  std::unordered_map<uint64_t, Trace> traces;
 };
 
 int main(int argc, char** argv) {
@@ -134,7 +177,15 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
+  FLAGS_stderrthreshold = 0;
+
   google::SetCommandLineOption("arch", "x86");
+
+  //addOccurrence
+
+  auto& opts = llvm::cl::getRegisteredOptions();
+  opts["opt-bisect-limit"]->addOccurrence(0, "opt-bisect-limit", "-1");
+  llvm::cl::PrintOptionValues();
 
   //llvm::cl::
 
@@ -144,7 +195,8 @@ int main(int argc, char** argv) {
   }
 
   llvm::LLVMContext context;
-  auto arch = remill::Arch::GetTargetArch(context);
+  auto arch = remill::Arch::Build(&context, remill::OSName::kOSWindows,
+                                  remill::ArchName::kArchX86);
 
   std::unique_ptr<llvm::Module> module(remill::LoadArchSemantics(arch));
 
@@ -153,13 +205,15 @@ int main(int argc, char** argv) {
 
   Memory memory = LoadCode();
 
-  SimpleTraceManager manager(memory);
+  auto trace_heads = LoadTraceHeadAddresses();
+
+  SimpleTraceManager manager(module.get(), memory, trace_heads);
   remill::IntrinsicTable intrinsics(module);
   remill::InstructionLifter inst_lifter(arch, intrinsics);
   remill::TraceLifter trace_lifter(inst_lifter, manager);
 
   // Lift all discoverable traces with addresses taken from file
-  for (auto addr : LoadBasicBlockAddresses()) {
+  for (auto addr : trace_heads) {
     trace_lifter.Lift(addr);
   }
 
@@ -167,7 +221,7 @@ int main(int argc, char** argv) {
   // that we actually lifted.
   remill::OptimizationGuide guide = {};
   guide.eliminate_dead_stores = true;
-  remill::OptimizeModule(arch, module, manager.traces, guide);
+  remill::OptimizeModule(arch, module, manager.GetDeclaredTraces(), guide);
 
 
   // Create a new module in which we will move all the lifted functions. Prepare
@@ -183,7 +237,68 @@ int main(int argc, char** argv) {
   // This is a good JITing strategy: optimize the lifted code in the semantics
   // module, move it to a new module, instrument it there, then JIT compile it.
   for (auto &lifted_entry : manager.traces) {
-    remill::MoveFunctionIntoModule(lifted_entry.second, intermediate_module.get());
+    remill::MoveFunctionIntoModule(lifted_entry.second.function, intermediate_module.get());
+  }
+
+  auto dispatcher_fun = llvm::Function::Create(arch->LiftedFunctionType(),
+                                               llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+                                               "uwin_xcute_remill_dispatch_recompiled",
+                                               *intermediate_module);
+  {
+
+    auto args_ptr = dispatcher_fun->arg_begin();
+    auto state = args_ptr++;
+    auto pc = args_ptr++;
+    auto mem = args_ptr++;
+
+    std::vector<llvm::Value*> args;
+    args.push_back(state);
+    args.push_back(pc);
+    args.push_back(mem);
+
+    llvm::IRBuilder<> builder(context);
+
+    auto block = llvm::BasicBlock::Create(context, "entry", dispatcher_fun);
+
+
+    auto abort = llvm::BasicBlock::Create(context, "abort");
+    {
+      builder.SetInsertPoint(abort);
+      builder.CreateRet(builder.CreateCall(intrinsics.error, args));
+    }
+
+    {
+      builder.SetInsertPoint(block);
+
+      auto sw = builder.CreateSwitch(pc, abort, manager.traces.size());
+      for (auto bb : manager.traces) {
+        std::stringstream hexbbss;
+        hexbbss << std::hex << bb.first;
+        std::string hexbb = hexbbss.str();
+
+        auto call = llvm::BasicBlock
+        ::Create(context,
+                 "call_" + hexbb);
+
+        builder.SetInsertPoint(call);
+
+        auto fun = intermediate_module->getFunction("sub_" + hexbb);
+                          //arch->LiftedFunctionType());
+        auto newmem = builder.CreateCall(fun, args);
+
+        // do not expose the sub_* functions
+        // TODO: do it only when compiling release?
+        // TODO: is Private any better than InternalLinkage? Does it give any optimization chances?
+        fun->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+        builder.CreateRet(newmem);
+
+        call->insertInto(dispatcher_fun);
+
+        sw->addCase(builder.getInt32(bb.first), call);
+      }
+    }
+    abort->insertInto(dispatcher_fun);
   }
 
   auto intrinsics_module
@@ -191,7 +306,7 @@ int main(int argc, char** argv) {
 
   // Here we do some voodoo magic. We link modules with different target
   // triples and data layouts. But this is okay, as there are no pointers
-  // inside remill-generated code besides State* and Memory*. They are fine,
+  // inside remill-generated code besides State& and Memory*. They are fine,
   // as they are using fixed-size types, ensuring no padding in-between
   // structure elements, and avoiding arch-specific types like long double.
   intermediate_module->setDataLayout(intrinsics_module->getDataLayout());
@@ -201,11 +316,36 @@ int main(int argc, char** argv) {
   guide.slp_vectorize = false;
   guide.loop_vectorize = false;
   guide.eliminate_dead_stores = false;
-  guide.verify_input = true;
+  guide.verify_input = false;
 
   remill::OptimizeBareModule(intrinsics_module, guide);
 
   int ret = EXIT_SUCCESS;
+
+  // remove the (now inlined) intrinsics and trace functions, not to pollute the global namespace
+  {
+    std::vector<std::string> rmnames;
+    for (auto &fun : intrinsics_module->functions()) {
+      auto nm = fun.getName().str();
+      if (nm.rfind("__remill_", 0) == 0) {
+        rmnames.emplace_back(std::move(nm));
+      }
+    }
+    for (auto& nm : rmnames) {
+      auto fun = intrinsics_module->getFunction(nm);
+      if (fun->uses().empty())
+      {}//fun->eraseFromParent();
+      else {
+        if (!fun->isDeclaration())
+          LOG(WARNING) << "Can't remove " << nm << ", as it has some uses";
+        else {
+          LOG(ERROR) << "Intrinsic " << nm << " does not have implementation";
+          ret = EXIT_FAILURE;
+        }
+      }
+    }
+  }
+
 
   if (!FLAGS_ir_out.empty()) {
     if (!remill::StoreModuleIRToFile(intrinsics_module.get(), FLAGS_ir_out, true)) {

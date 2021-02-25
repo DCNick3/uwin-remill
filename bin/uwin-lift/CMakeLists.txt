@@ -21,15 +21,28 @@ cmake_minimum_required(VERSION 3.2)
 
 set(UWIN_LIFT uwin-lift-${REMILL_LLVM_VERSION})
 
+set(INTRINSICS_SRC "${CMAKE_CURRENT_LIST_DIR}/intrinsics.cpp")
+set(INTRINSICS_BC "${CMAKE_CURRENT_BINARY_DIR}/intrinsics.bc")
+
+add_custom_command(OUTPUT "${INTRINSICS_BC}"
+        COMMAND "${CMAKE_BC_COMPILER}" "-I${CMAKE_SOURCE_DIR}/include" -emit-llvm -c "${INTRINSICS_SRC}" -o "${INTRINSICS_BC}"
+        MAIN_DEPENDENCY "${INTRINSICS_SRC}"
+        COMMENT "Building BC object ${INTRINSICS_BC}"
+        )
+
 add_executable(${UWIN_LIFT}
-  Lift.cpp
-)
+        Lift.cpp
+        "${INTRINSICS_BC}"
+        )
+
+target_compile_definitions(${UWIN_LIFT} PRIVATE
+        "-DINTRINSICS_BC=\"${INTRINSICS_BC}\"")
 
 #
 # target settings
 #
 
-target_link_libraries(${UWIN_LIFT} PRIVATE remill RemillVersion)
+target_link_libraries(${UWIN_LIFT} PRIVATE remill)
 target_include_directories(${UWIN_LIFT} SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(DEFINED WIN32)
