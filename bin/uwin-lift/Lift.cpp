@@ -37,6 +37,8 @@ DEFINE_string(intrinsics_filename, INTRINSICS_BC, "Llvm bitcode containing "
               "They will be copied to generated module and force-inlined.");
 DEFINE_string(basic_blocks_filename, "",
               "Filename of a file containing basic block addresses.");
+DEFINE_string(name_map_filename, "",
+              "Filename of a file containing name map.");
 
 #pragma clang diagnostic pop
 
@@ -48,6 +50,10 @@ static Memory LoadCode() {
   // C7053713000028020000C3
   // 31C064A300000000C3
   std::ifstream f(FLAGS_code_filename, std::ios_base::in | std::ios_base::binary);
+  if (!f.is_open()) {
+    std::cerr << "Cannot open code file" << std::endl;
+    exit(1);
+  }
   f.seekg(0, std::ios_base::end);
   auto size = f.tellg();
   f.seekg(0);
@@ -80,6 +86,26 @@ static std::vector<uint64_t> LoadTraceHeadAddresses() {
   return res;
 }
 
+static std::unordered_map<uint64_t, std::string> LoadNameMap() {
+  if (FLAGS_name_map_filename.empty())
+    return {};
+
+  std::unordered_map<uint64_t, std::string> res;
+  std::ifstream f(FLAGS_name_map_filename, std::ios_base::in);
+  if (!f.is_open()) {
+    throw std::runtime_error("Can't open name map file");
+  }
+
+  while (true) {
+    std::uint64_t addr;
+    std::string name;
+    f >> addr >> name;
+    if (f.eof()) break;
+    res.emplace(addr, name);
+  }
+  return res;
+}
+
 class SimpleTraceManager : public remill::TraceManager {
  public:
   ~SimpleTraceManager() override = default;
@@ -90,13 +116,27 @@ class SimpleTraceManager : public remill::TraceManager {
   explicit SimpleTraceManager(
       llvm::Module *module,
       Memory &memory_,
-      Generator const& trace_heads_generator) : memory(memory_) {
+      Generator const& trace_heads_generator,
+      std::unordered_map<std::uint64_t, std::string> const& name_map_)
+      : memory(memory_), name_map(name_map_) {
     for (auto const& addr : trace_heads_generator)
     {
       traces[addr].function = remill::DeclareLiftedFunction(module, TraceName(addr));
     }
   }
 #pragma clang diagnostic pop
+
+  std::string TraceName(uint64_t addr) override {
+    auto it = name_map.find(addr);
+    std::stringstream ss;
+    ss << "lifted_";
+
+    if (it != name_map.end())
+      ss << it->second << "_";
+    ss << std::hex << addr;
+
+    return ss.str();
+  }
 
  protected:
   // Called when we have lifted, i.e. defined the contents, of a new trace.
@@ -170,6 +210,7 @@ class SimpleTraceManager : public remill::TraceManager {
 
   Memory &memory;
   std::unordered_map<uint64_t, Trace> traces;
+  std::unordered_map<std::uint64_t, std::string> const& name_map;
 };
 
 int main(int argc, char** argv) {
@@ -206,8 +247,9 @@ int main(int argc, char** argv) {
   Memory memory = LoadCode();
 
   auto trace_heads = LoadTraceHeadAddresses();
+  auto name_map = LoadNameMap();
 
-  SimpleTraceManager manager(module.get(), memory, trace_heads);
+  SimpleTraceManager manager(module.get(), memory, trace_heads, name_map);
   remill::IntrinsicTable intrinsics(module);
   remill::InstructionLifter inst_lifter(arch, intrinsics);
   remill::TraceLifter trace_lifter(inst_lifter, manager);
@@ -241,10 +283,10 @@ int main(int argc, char** argv) {
   }
 
   auto dispatcher_fun = llvm::Function::Create(arch->LiftedFunctionType(),
-                                               llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+                                                 llvm::GlobalValue::LinkageTypes::ExternalLinkage,
                                                "uwin_xcute_remill_dispatch_recompiled",
                                                *intermediate_module);
-  {
+ {
 
     auto args_ptr = dispatcher_fun->arg_begin();
     auto state = args_ptr++;
@@ -282,7 +324,7 @@ int main(int argc, char** argv) {
 
         builder.SetInsertPoint(call);
 
-        auto fun = intermediate_module->getFunction("sub_" + hexbb);
+        auto fun = intermediate_module->getFunction(manager.TraceName(bb.first));
                           //arch->LiftedFunctionType());
         auto newmem = builder.CreateCall(fun, args);
 
@@ -323,6 +365,7 @@ int main(int argc, char** argv) {
   int ret = EXIT_SUCCESS;
 
   // remove the (now inlined) intrinsics and trace functions, not to pollute the global namespace
+  // also mark all functions with uwtable attribute to allow C++ exceptions to pass through
   {
     std::vector<std::string> rmnames;
     for (auto &fun : intrinsics_module->functions()) {
@@ -330,6 +373,8 @@ int main(int argc, char** argv) {
       if (nm.rfind("__remill_", 0) == 0) {
         rmnames.emplace_back(std::move(nm));
       }
+
+      fun.addFnAttr(llvm::Attribute::UWTable);
     }
     for (auto& nm : rmnames) {
       auto fun = intrinsics_module->getFunction(nm);

@@ -25,7 +25,7 @@ set(INTRINSICS_SRC "${CMAKE_CURRENT_LIST_DIR}/intrinsics.cpp")
 set(INTRINSICS_BC "${CMAKE_CURRENT_BINARY_DIR}/intrinsics.bc")
 
 add_custom_command(OUTPUT "${INTRINSICS_BC}"
-        COMMAND "${CMAKE_BC_COMPILER}" "-I${CMAKE_SOURCE_DIR}/include" -emit-llvm -c "${INTRINSICS_SRC}" -o "${INTRINSICS_BC}"
+        COMMAND "${CMAKE_BC_COMPILER}" "-I${CMAKE_SOURCE_DIR}/include" -emit-llvm -funwind-tables -c "${INTRINSICS_SRC}" -o "${INTRINSICS_BC}"
         MAIN_DEPENDENCY "${INTRINSICS_SRC}"
         COMMENT "Building BC object ${INTRINSICS_BC}"
         )

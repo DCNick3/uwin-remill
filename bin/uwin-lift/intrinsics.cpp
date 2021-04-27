@@ -1,3 +1,5 @@
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "bugprone-reserved-identifier"
 
 typedef struct Memory Memory;
 
@@ -124,38 +126,40 @@ Memory *__remill_write_memory_8(Memory *mem, uint32_t addr, uint8_t value) {
 
 
 [[gnu::always_inline]]
-float32_t __remill_read_memory_f32(Memory *, addr_t addr, float32_t val) {
-  return *reinterpret_cast<float32_t *>(addr);
+float32_t __remill_read_memory_f32(Memory *mem, addr_t addr, float32_t val) {
+  return *get_addr<float32_t>(mem, addr);
 }
 
 [[gnu::always_inline]]
-float64_t __remill_read_memory_f64(Memory *, addr_t addr, float64_t val) {
-  return *reinterpret_cast<float64_t *>(addr);
+float64_t __remill_read_memory_f64(Memory *mem, addr_t addr, float64_t val) {
+  return *get_addr<float64_t>(mem, addr);
 }
 
 [[gnu::always_inline]]
-float64_t __remill_read_memory_f80(Memory *, addr_t addr) {
+float64_t __remill_read_memory_f80(Memory *mem, addr_t addr) {
   uwin_xcute_remill_abort("__remill_read_memory_f80 is not implemented");
+  // FIXME: long double is not necessarily a float80_t (need to implement some emulation)
   //return static_cast<float64_t>(*reinterpret_cast<long double *>(addr));
 }
 
 [[gnu::always_inline]]
-Memory *__remill_write_memory_f32(Memory *memory, addr_t addr, float32_t val) {
-  *reinterpret_cast<float32_t *>(addr) = val;
-  return memory;
+Memory *__remill_write_memory_f32(Memory *mem, addr_t addr, float32_t val) {
+  *get_addr<float32_t>(mem, addr) = val;
+  return mem;
 }
 
 [[gnu::always_inline]]
-Memory *__remill_write_memory_f64(Memory *memory, addr_t addr, float64_t val) {
-  *reinterpret_cast<float64_t *>(addr) = val;
-  return memory;
+Memory *__remill_write_memory_f64(Memory *mem, addr_t addr, float64_t val) {
+  *get_addr<float64_t>(mem, addr) = val;
+  return mem;
 }
 
 [[gnu::always_inline]]
-Memory *__remill_write_memory_f80(Memory *memory, addr_t addr, float64_t val) {
+Memory *__remill_write_memory_f80(Memory *mem, addr_t addr, float64_t val) {
   uwin_xcute_remill_abort("__remill_write_memory_f80 is not implemented");
-  *reinterpret_cast<long double *>(addr) = static_cast<long double>(val);
-  return memory;
+  // FIXME: long double is not necessarily a float80_t (need to implement some emulation)
+  *get_addr<long double>(mem, addr) = static_cast<long double>(val);
+  return mem;
 }
 
 
@@ -185,3 +189,4 @@ uint8_t __remill_undefined_8() {
   return mem;
 }
 }
+#pragma clang diagnostic pop
