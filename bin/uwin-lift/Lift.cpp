@@ -306,7 +306,10 @@ int main(int argc, char** argv) {
     auto abort = llvm::BasicBlock::Create(context, "abort");
     {
       builder.SetInsertPoint(abort);
-      builder.CreateRet(builder.CreateCall(intrinsics.error, args));
+
+      auto unk = intermediate_module->getOrInsertFunction("uwin_xcute_remill_dispatch_unknown", arch->LiftedFunctionType());
+
+      builder.CreateRet(builder.CreateCall(unk, args));
     }
 
     {

@@ -23,6 +23,8 @@ Memory *uwin_xcute_remill_dispatch(State &st, uint32_t pc, Memory *mem);
 Memory *uwin_xcute_remill_error(State &st, uint32_t pc, Memory *mem);
 Memory *uwin_xcute_remill_async_hyper_call(State &st, uint32_t pc, Memory *mem);
 Memory *uwin_xcute_remill_sync_hyper_call(State &st, uint32_t pc, Memory *mem);
+Memory *uwin_xcute_remill_dispatch_unknown(State &st, uint32_t pc, Memory *mem); /* not called, but a call is generated in the dispatched function */
+Memory *uwin_xcute_remill_missing_block(State &st, uint32_t pc, Memory *mem);
 
 [[gnu::always_inline]]
 Memory *__remill_function_call(State &st, uint32_t pc, Memory *mem) {
@@ -36,7 +38,7 @@ Memory *__remill_jump(State &st, uint32_t pc, Memory *mem) {
 
 [[gnu::always_inline]]
 Memory *__remill_missing_block(State &st, uint32_t pc, Memory *mem) {
-  return uwin_xcute_remill_dispatch(st, pc, mem);
+  return uwin_xcute_remill_missing_block(st, pc, mem);
 }
 
 [[gnu::always_inline]]
