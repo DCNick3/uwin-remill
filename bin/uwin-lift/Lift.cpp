@@ -97,11 +97,14 @@ static std::unordered_map<uint64_t, std::string> LoadNameMap() {
   }
 
   while (true) {
-    std::uint64_t addr;
+    std::uint64_t addr_lo, addr_hi;
     std::string name;
-    f >> addr >> name;
+    f >> addr_lo >> addr_hi >> name;
     if (f.eof()) break;
-    res.emplace(addr, name);
+    // TODO: this is dumb as fuck, replace by a more smart (but more complex) data structure
+    // probably smth with std::upper_bound would work
+    for (std::uint64_t addr = addr_lo; addr < addr_hi; addr++)
+      res.emplace(addr, name);
   }
   return res;
 }
@@ -131,9 +134,10 @@ class SimpleTraceManager : public remill::TraceManager {
     std::stringstream ss;
     ss << "lifted_";
 
-    if (it != name_map.end())
+    if (it != name_map.end()) {
       ss << it->second << "_";
-    ss << std::hex << addr;
+    }
+    ss << std::hex << addr << "_func";
 
     return ss.str();
   }
