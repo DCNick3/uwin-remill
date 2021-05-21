@@ -19,7 +19,7 @@ cmake_minimum_required(VERSION 3.2)
 # target settings
 #
 
-set(REMILL_LIFT remill-lift-${REMILL_LLVM_VERSION})
+set(REMILL_LIFT remill-lift)
 
 add_executable(${REMILL_LIFT}
   Lift.cpp

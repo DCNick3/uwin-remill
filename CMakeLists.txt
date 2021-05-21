@@ -264,8 +264,8 @@ install(TARGETS remill EXPORT remillTargets)
 # Also install clang, libllvm and llvm-link
 #
 
-set(INSTALLED_CLANG_NAME "remill-clang-${REMILL_LLVM_VERSION}${CMAKE_EXECUTABLE_SUFFIX}")
-set(INSTALLED_LLVMLINK_NAME "remill-llvm-link-${REMILL_LLVM_VERSION}${CMAKE_EXECUTABLE_SUFFIX}")
+set(INSTALLED_CLANG_NAME "remill-clang${CMAKE_EXECUTABLE_SUFFIX}")
+set(INSTALLED_LLVMLINK_NAME "remill-llvm-link${CMAKE_EXECUTABLE_SUFFIX}")
 
 InstallExternalTarget("ext_clang" "${CLANG_PATH}" "BIN" "${INSTALLED_CLANG_NAME}")
 

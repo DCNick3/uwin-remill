@@ -19,7 +19,7 @@ cmake_minimum_required(VERSION 3.2)
 # target settings
 #
 
-set(UWIN_LIFT uwin-lift-${REMILL_LLVM_VERSION})
+set(UWIN_LIFT uwin-lift)
 
 set(INTRINSICS_SRC "${CMAKE_CURRENT_LIST_DIR}/intrinsics.cpp")
 set(INTRINSICS_BC "${CMAKE_CURRENT_BINARY_DIR}/intrinsics.bc")

@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+import re
+import sys
+
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent / "lib/python"))
+
+from uwin_lift_hlp import dump_debug
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(dump_debug())
