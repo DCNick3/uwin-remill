@@ -30,14 +30,13 @@
 #include <sstream>
 #include <string>
 
+#include "XED.h"
 #include "remill/Arch/Instruction.h"
 #include "remill/Arch/Name.h"
 #include "remill/BC/ABI.h"
 #include "remill/BC/Util.h"
 #include "remill/BC/Version.h"
 #include "remill/OS/OS.h"
-
-#include "XED.h"
 
 // clang-format off
 #define HAS_FEATURE_AVX 1
@@ -425,7 +424,6 @@ static void DecodeMemory(Instruction &inst, const xed_decoded_inst_t *xedd,
   auto iform = xed_decoded_inst_get_iform_enum(xedd);
   auto iclass = xed_decoded_inst_get_iclass(xedd);
   auto op_name = xed_operand_name(xedo);
-  auto segment = xed_decoded_inst_get_seg_reg(xedd, mem_index);
   auto base = xed_decoded_inst_get_base_reg(xedd, mem_index);
   auto index = xed_decoded_inst_get_index_reg(xedd, mem_index);
   auto disp = xed_decoded_inst_get_memory_displacement(xedd, mem_index);
@@ -439,24 +437,34 @@ static void DecodeMemory(Instruction &inst, const xed_decoded_inst_t *xedd,
     size = 16;
   }
 
-  // Deduce the implicit segment register if it is absent.
-  if (XED_REG_INVALID == segment) {
-    segment = XED_REG_DS;
-    if (XED_REG_RSP == base_wide || XED_REG_RBP == base_wide) {
-      segment = XED_REG_SS;
+  auto raw_segment_reg = xed_decoded_inst_get_seg_reg(xedd, mem_index);
+  auto deduce_segment = [&](auto segment_reg) {
+    // Deduce the implicit segment register if it is absent.
+    if (XED_REG_INVALID != segment_reg) {
+      return segment_reg;
     }
-  }
+    if (XED_REG_RSP == base_wide || XED_REG_RBP == base_wide) {
+      return XED_REG_SS;
+    }
+    return XED_REG_DS;
+  };
+  auto ignore_segment = [&](auto segment_reg) {
+    // On AMD64, only the `FS` and `GS` segments are non-zero.
+    if (Is64Bit(inst.arch_name) && XED_REG_FS != segment_reg &&
+        XED_REG_GS != segment_reg) {
+      return XED_REG_INVALID;
+    }
 
-  // On AMD64, only the `FS` and `GS` segments are non-zero.
-  if (Is64Bit(inst.arch_name) && XED_REG_FS != segment &&
-      XED_REG_GS != segment) {
-    segment = XED_REG_INVALID;
+    // AGEN operands, e.g. for the `LEA` instuction, can be marked with an
+    // explicit segment, but it is ignored.
+    if (XED_OPERAND_AGEN == op_name) {
+      return XED_REG_INVALID;
+    }
 
-  // AGEN operands, e.g. for the `LEA` instuction, can be marked with an
-  // explicit segment, but it is ignored.
-  } else if (XED_OPERAND_AGEN == op_name) {
-    segment = XED_REG_INVALID;
-  }
+    // No need to ignore it
+    return segment_reg;
+  };
+  auto segment_reg = ignore_segment(deduce_segment(raw_segment_reg));
 
   // Special case: `POP [xSP + ...] uses the value of `xSP` after incrementing
   // it by the stack width.
@@ -471,7 +479,7 @@ static void DecodeMemory(Instruction &inst, const xed_decoded_inst_t *xedd,
   op.addr.address_size =
       xed_decoded_inst_get_memop_address_width(xedd, mem_index);
 
-  op.addr.segment_base_reg = SegBaseRegOp(segment, op.addr.address_size);
+  op.addr.segment_base_reg = SegBaseRegOp(segment_reg, op.addr.address_size);
   op.addr.base_reg = RegOp(base);
   op.addr.index_reg = RegOp(index);
   op.addr.scale = XED_REG_INVALID != index ? static_cast<int64_t>(scale) : 0;
@@ -571,10 +579,9 @@ static void DecodeRegister(Instruction &inst, const xed_decoded_inst_t *xedd,
   if (xed_operand_written(xedo)) {
     op.action = Operand::kActionWrite;
     if (Is64Bit(inst.arch_name)) {
-      if (XED_REG_GPR32_FIRST <= reg && XED_REG_GPR32_LAST > reg) {
-        op.reg.name[0] = 'R';  // Convert things like `EAX` into `RAX`.
-        op.size = 64;
-        op.reg.size = 64;
+      if (XED_REG_GPR32_FIRST <= reg && XED_REG_GPR32_LAST >= reg) {
+        op.reg = RegOp(xed_get_largest_enclosing_register(reg));
+        op.size = op.reg.size;
 
       } else if (XED_REG_XMM_FIRST <= reg && XED_REG_ZMM_LAST >= reg) {
         if (kArchAMD64_AVX512 == inst.arch_name) {
@@ -809,7 +816,6 @@ class X86Arch final : public Arch {
                                   llvm::Function *bb_func) const override;
 
  private:
-
   X86Arch(void) = delete;
 };
 
@@ -990,6 +996,13 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
   // instuction implementation.
   auto xedi = xed_decoded_inst_inst(xedd);
   auto num_operands = xed_decoded_inst_noperands(xedd);
+
+  auto xedv = xed_decoded_inst_operands_const(xedd);
+  if (xed_operand_values_has_segment_prefix(xedv)) {
+    auto reg_name = xed_reg_enum_t2str(xed_operand_values_segment_prefix(xedv));
+    inst.segment_override = RegisterByName(reg_name);
+  }
+
   for (auto i = 0U; i < num_operands; ++i) {
     auto xedo = xed_inst_operand(xedi, i);
     if (XED_OPVIS_SUPPRESSED != xed_operand_operand_visibility(xedo)) {
@@ -1067,8 +1080,8 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
 
   if (xed_decoded_inst_is_xacquire(xedd) ||
       xed_decoded_inst_is_xrelease(xedd)) {
-    LOG(ERROR) << "Ignoring XACQUIRE/XRELEASE prefix at " << std::hex
-               << inst.pc << std::dec;
+    LOG(ERROR) << "Ignoring XACQUIRE/XRELEASE prefix at " << std::hex << inst.pc
+               << std::dec;
   }
 
   // Make sure we disallow decoding of AVX instructions when running with non-
