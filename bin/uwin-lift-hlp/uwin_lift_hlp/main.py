@@ -113,7 +113,7 @@ def recompile(ir_path, o_path):
     with spin(text='recompiling...', timer=True).material.white.on_yellow as spinner:
         try:
             subprocess.check_output([str(UWIN_CLANG_PATH),
-                                     Path(ir_path).absolute(), '-c', '-O3',
+                                     Path(ir_path).absolute(), '-c', '-O3', '-fPIC',
                                      '-o', Path(o_path).absolute()
                                      ], stderr=subprocess.STDOUT, text=True)
 
@@ -161,7 +161,10 @@ def do_the_thing(exe_name, extra_code_addresses, o_path):
         lift(code_path, code_addr, bbs_path, nm_path, ir_path)
         recompile(ir_path, o_path)
 
+
 def main():
+    global SHOW_SPINNERS
+
     parser = argparse.ArgumentParser(prog='uwin-lift-hlp', description='Convert a exe file into a lifted object file ready '
                                                                   'to link with uwin')
 

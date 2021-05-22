@@ -5,15 +5,15 @@ import shutil
 
 class RemillConan(ConanFile):
     name = "uwin-remill"
-    version = "0.1"
-    settings = "os", "build_type", "arch"
+    version = "0.2"
+    settings = "os", "arch"
     url = "https://gitlab.com/uwin-dev/remill"
     license = "Apache"
     description = """Fork of remill to help translate executable code for uwin"""
     generators = "cmake"
     exports_sources = "*"
 
-    requires = "lifting-bits-cxx-common/0.1.4@uwin/stable", "ghidra/9.2.3@uwin/stable"
+    requires = "ghidra/9.2.3@uwin/stable"
 
     def _configure_cmake(self):
         vcpkg_root = self.deps_cpp_info['lifting-bits-cxx-common'].rootpath
@@ -24,6 +24,8 @@ class RemillConan(ConanFile):
         cmake.configure(source_folder=".", )
         return cmake
 
+    def requirements(self):
+        self.requires("lifting-bits-cxx-common/0.1.4@uwin/stable", private=True)
 
     def build(self):
         cmake = self._configure_cmake()
