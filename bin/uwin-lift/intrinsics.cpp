@@ -178,6 +178,14 @@ uint8_t __remill_undefined_8() {
   return 0;
 }
 
+[[gnu::always_inline]] uint64_t __remill_undefined_64() {
+  return 0;
+}
+
+[[gnu::always_inline]] float64_t __remill_undefined_f64() {
+  return 0;
+}
+
 [[gnu::always_inline]] Memory *__remill_error(State &st, addr_t pc, Memory *mem) {
   return uwin_xcute_remill_error(st, pc, mem);
 }

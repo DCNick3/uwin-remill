@@ -4,8 +4,13 @@ import os
 import shutil
 
 class RemillConan(ConanFile):
+    scm = {
+        "type": "git",
+        "url": "auto",
+        "revision": "auto",
+    }
+
     name = "uwin-remill"
-    version = "0.2"
     settings = "os", "arch"
     url = "https://gitlab.com/uwin-dev/remill"
     license = "Apache"
@@ -14,6 +19,10 @@ class RemillConan(ConanFile):
     exports_sources = "*"
 
     requires = "ghidra/9.2.3@uwin/stable"
+
+    def set_version(self):
+        git = tools.Git(folder=self.recipe_folder)
+        self.version = "%s_%s" % (git.get_branch(), git.get_revision())
 
     def _configure_cmake(self):
         vcpkg_root = self.deps_cpp_info['lifting-bits-cxx-common'].rootpath

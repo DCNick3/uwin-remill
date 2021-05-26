@@ -38,6 +38,9 @@ add_executable(${UWIN_LIFT}
 target_compile_definitions(${UWIN_LIFT} PRIVATE
         "-DINTRINSICS_BC=\"${INTRINSICS_BC}\"")
 
+set(UWIN_INSTALL_INTRINSICS_DIR "${CMAKE_INSTALL_PREFIX}/${REMILL_INSTALL_SHARE_DIR}/uwin" CACHE PATH "Directory into which intrinsics are installed")
+install(FILES "${INTRINSICS_BC}" DESTINATION "${UWIN_INSTALL_INTRINSICS_DIR}")
+
 #
 # target settings
 #

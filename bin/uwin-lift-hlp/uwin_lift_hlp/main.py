@@ -20,7 +20,7 @@ def eprint(*args, **kwargs):
 SCRIPT_DIR = Path(path.dirname(__file__))
 
 # we expect a certain directory configuration, followed by the conan package
-PKG_DIR = SCRIPT_DIR.parent.parent.parent
+PKG_DIR = SCRIPT_DIR.parent.parent.parent.absolute()
 
 GHIDRA_DIR = os.getenv("GHIDRA")
 if not GHIDRA_DIR:
@@ -131,7 +131,9 @@ def lift(code_bin_path, code_address, bbs_path, name_map_path, ir_path):
                                      '--code_address', str(code_address),
                                      '--basic_blocks_filename', Path(bbs_path).absolute(),
                                      '--name_map_filename', Path(name_map_path).absolute(),
-                                     '--ir_out', Path(ir_path).absolute()
+                                     '--ir_out', Path(ir_path).absolute(),
+                                     '--semantics_search_paths', PKG_DIR / "share/remill/semantics"
+                                     '--intrinsics_filename', PKG_DIR / "share/uwin/intrinsics.bc"
                                      ], stderr=subprocess.STDOUT, text=True)
 
             spinner.ok("✓")
