@@ -151,7 +151,7 @@ def do_the_thing(exe_name, extra_code_addresses, o_path):
         ir_path = dpath / 'ir_out.ll'
 
         code_addr, code_data, extra_code_addresses_1, name_map = extract_code_and_debug_info(exe_name)
-        bbs = ghidralize(exe_name, extra_code_addresses_1 + extra_code_addresses)
+        bbs = ghidralize(Path(exe_name).absolute(), extra_code_addresses_1 + extra_code_addresses)
 
         with open(bbs_path, 'w') as f:
             f.write('\n'.join(map(str, bbs)))
