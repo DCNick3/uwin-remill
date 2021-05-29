@@ -6,7 +6,7 @@ import shutil
 class RemillConan(ConanFile):
     scm = {
         "type": "git",
-        "url": "auto",
+        "url": "https://gitlab.com/uwin-dev/remill.git",
         "revision": "auto",
     }
 
