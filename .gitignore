@@ -98,3 +98,5 @@ obj-intel64/*
 
 #VERSION files from CI
 VERSION
+
+cmake-build-*
