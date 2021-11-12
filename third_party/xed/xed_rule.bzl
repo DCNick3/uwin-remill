@@ -1,10 +1,70 @@
 
+load("@bazel_skylib//lib:collections.bzl", "collections")
+
+FOREIGN_CC_DISABLED_FEATURES = [
+    "layering_check",
+    "module_maps",
+    "thin_lto",
+]
+
+def _configure_features(ctx, cc_toolchain):
+    return cc_common.configure_features(
+        ctx = ctx,
+        cc_toolchain = cc_toolchain,
+        requested_features = ctx.features,
+        unsupported_features = ctx.disabled_features + FOREIGN_CC_DISABLED_FEATURES,
+    )
+
+def _file_name_no_ext(basename):
+    (before, separator, after) = basename.rpartition(".")
+    return before
+
+def _files_map(files_list):
+    by_names_map = {}
+    for file_ in files_list:
+        name_ = _file_name_no_ext(file_.basename)
+        value = by_names_map.get(name_)
+        if value:
+            fail("Can not have libraries with the same name in the same category")
+        by_names_map[name_] = file_
+    return by_names_map
+
+def _create_libraries_to_link(ctx, static_libraries, cc_toolchain):
+    libs = []
+
+    static_map = _files_map(static_libraries or [])
+
+    #static_map = _files_map(_filter(static_libraries or [], _is_position_independent, True))
+    #pic_static_map = _files_map(_filter(static_libraries or [], _is_position_independent, False))
+
+    names = collections.uniq(static_map.keys())
+
+    feature_configuration = _configure_features(
+        ctx = ctx,
+        cc_toolchain = cc_toolchain,
+    )
+
+    for name_ in names:
+        libs.append(cc_common.create_library_to_link(
+            actions = ctx.actions,
+            feature_configuration = feature_configuration,
+            cc_toolchain = cc_toolchain,
+            static_library = static_map.get(name_),
+            #pic_static_library = pic_static_map.get(name_),
+            #dynamic_library = shared_map.get(name_),
+            #interface_library = interface_map.get(name_),
+            #alwayslink = ctx.attr.alwayslink,
+        ))
+
+    return depset(direct = libs)
+
 def _compile_xed_impl(ctx):
     cxx_toolchain = ctx.toolchains["@bazel_tools//tools/cpp:toolchain_type"]
     
     #print(cxx_toolchain.toolchain_config)
     
     outdir = ctx.actions.declare_directory('out')
+    out_includedir = ctx.actions.declare_directory('out/include')
     
     mfile_args = []
     
@@ -31,15 +91,14 @@ def _compile_xed_impl(ctx):
     dirs = [
         outdir,
         ctx.actions.declare_directory('out/lib'),
-        ctx.actions.declare_directory('out/include'),
+        out_includedir,
         ctx.actions.declare_directory('out/include/xed')
     ]
     
     # same for files: is it required to declare unimportant files?
-    outputs = ['out/lib/' + lib for lib in libs] + ['out/include/xed/' + include for include in includes]
-    outputs = dirs + [ ctx.actions.declare_file(file) for file in outputs ]
-    
-    #print(ctx.executable.mfile)
+    libs = [ctx.actions.declare_file('out/lib/' + lib) for lib in libs]
+    includes = [ctx.actions.declare_file('out/include/xed/' + include) for include in includes]
+    outputs = dirs + libs + includes
     
     ctx.actions.run(
         inputs = ctx.files.all_sources + cxx_toolchain.all_files.to_list(),
@@ -51,17 +110,36 @@ def _compile_xed_impl(ctx):
         progress_message = "Compiling xed using its NIH build system",
     )
     
-    return [
-        DefaultInfo(files = depset(outputs))
-    ]
+    compilation_info = cc_common.create_compilation_context(
+        headers = depset([out_includedir]),
+        system_includes = depset([out_includedir.path]),
+        includes = depset([]),
+        quote_includes = depset([]),
+        defines = depset([]),
+    )
+    linking_info = cc_common.create_linking_context(
+        linker_inputs = depset(direct = [
+            cc_common.create_linker_input(
+                owner = ctx.label,
+                libraries = _create_libraries_to_link(ctx, libs, cxx_toolchain),
+            ),
+        ]),
+    )
     
-    print(mfile_args)
-    pass
+    cc_info = CcInfo(
+        compilation_context = compilation_info,
+        linking_context = linking_info,
+    )
+    return [
+        DefaultInfo(files = depset(outputs)),
+        cc_info
+    ]
 
 
 compile_xed = rule(
     implementation = _compile_xed_impl,
     toolchains = ["@bazel_tools//tools/cpp:toolchain_type"],
+    fragments = ['cpp'],
     attrs = {
         "mfile": attr.label(
             mandatory = True,

@@ -24,5 +24,6 @@ compile_xed(
     name = "xed",
     mfile = ":mfile",
     all_sources = ":all_sources",
-    source_root = ":."
+    source_root = ":.",
+    visibility = ["//visibility:public"]
 )
