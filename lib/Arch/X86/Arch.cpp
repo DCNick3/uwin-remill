@@ -411,7 +411,7 @@ static Operand::Register RegOp(xed_reg_enum_t reg) {
 static Operand::Register SegBaseRegOp(xed_reg_enum_t reg, unsigned addr_size) {
   auto op = RegOp(reg);
   if (XED_REG_INVALID != reg) {
-    op.name += "_BASE";
+    op.name += "BASE";
     op.size = addr_size;
   }
   return op;
@@ -467,9 +467,9 @@ static void DecodeMemory(Instruction &inst, const xed_decoded_inst_t *xedd,
   auto segment_reg = ignore_segment(deduce_segment(raw_segment_reg));
 
   // Special case: `POP [xSP + ...] uses the value of `xSP` after incrementing
-  // it by the stack width.
+  // it by the stack width. For more reasoning see definition of semantics for POP.
   if (XED_ICLASS_POP == iclass && XED_REG_RSP == base_wide) {
-    disp += static_cast<int64_t>(size / 8);
+    inst.function = "POP_MEM_XSP_" + std::to_string(size);
   }
 
   Operand op = {};
@@ -1220,7 +1220,7 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
   auto u16 = llvm::Type::getInt16Ty(context);
   auto u32 = llvm::Type::getInt32Ty(context);
   auto u64 = llvm::Type::getInt64Ty(context);
-  auto f64 = llvm::Type::getDoubleTy(context);
+  auto f80 = llvm::Type::getX86_FP80Ty(context);
   auto v128 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 128u / 8u);
   auto v256 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 256u / 8u);
   auto v512 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 512u / 8u);
@@ -1362,17 +1362,21 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
   REG(DS, seg.ds.flat, u16);
   REG(CS, seg.cs.flat, u16);
 
-  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "SS_BASE"));
-  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "ES_BASE"));
-  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "DS_BASE"));
-  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "CS_BASE"));
+  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "CSBASE"));
 
   if (64 == address_size) {
-    REG(GS_BASE, addr.gs_base.qword, addr);
-    REG(FS_BASE, addr.fs_base.qword, addr);
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "SSBASE"));
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "ESBASE"));
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "DSBASE"));
+    REG(GSBASE, addr.gs_base.qword, addr);
+    REG(FSBASE, addr.fs_base.qword, addr);
+
   } else {
-    REG(GS_BASE, addr.gs_base.dword, addr);
-    REG(FS_BASE, addr.fs_base.dword, addr);
+    REG(SSBASE, addr.ss_base.dword, addr);
+    REG(ESBASE, addr.es_base.dword, addr);
+    REG(DSBASE, addr.ds_base.dword, addr);
+    REG(GSBASE, addr.gs_base.dword, addr);
+    REG(FSBASE, addr.fs_base.dword, addr);
   }
 
   if (has_avx) {
@@ -1490,14 +1494,14 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
     SUB_REG(XMM31, vec[31].xmm, v128, YMM31);
   }
 
-  REG(ST0, st.elems[0].val, f64);
-  REG(ST1, st.elems[1].val, f64);
-  REG(ST2, st.elems[2].val, f64);
-  REG(ST3, st.elems[3].val, f64);
-  REG(ST4, st.elems[4].val, f64);
-  REG(ST5, st.elems[5].val, f64);
-  REG(ST6, st.elems[6].val, f64);
-  REG(ST7, st.elems[7].val, f64);
+  REG(ST0, st.elems[0].val, f80);
+  REG(ST1, st.elems[1].val, f80);
+  REG(ST2, st.elems[2].val, f80);
+  REG(ST3, st.elems[3].val, f80);
+  REG(ST4, st.elems[4].val, f80);
+  REG(ST5, st.elems[5].val, f80);
+  REG(ST6, st.elems[6].val, f80);
+  REG(ST7, st.elems[7].val, f80);
 
 #if 0  // TODO(pag): Don't emulate directly for now.
   if (32 == address_size) {

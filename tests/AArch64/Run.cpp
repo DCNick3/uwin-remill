@@ -143,15 +143,8 @@ MAKE_RW_MEMORY(64)
 
 MAKE_RW_FP_MEMORY(32)
 MAKE_RW_FP_MEMORY(64)
+MAKE_RW_FP_MEMORY(80)
 MAKE_RW_FP_MEMORY(128)
-
-NEVER_INLINE float64_t __remill_read_memory_f80(Memory *, addr_t) {
-  abort();
-}
-
-NEVER_INLINE Memory *__remill_write_memory_f80(Memory *, addr_t, float64_t) {
-  abort();
-}
 
 Memory *__remill_compare_exchange_memory_8(Memory *memory, addr_t addr,
                                            uint8_t &expected, uint8_t desired) {
@@ -332,6 +325,14 @@ float32_t __remill_undefined_f32(void) {
 
 float64_t __remill_undefined_f64(void) {
   return 0.0;
+}
+
+float80_t __remill_undefined_f80(void) {
+  return {0};
+}
+
+float128_t __remill_undefined_f128(void) {
+  return {0};
 }
 
 // Marks `mem` as being used. This is used for making sure certain symbols are
