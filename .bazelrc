@@ -11,3 +11,5 @@ build --incompatible_enable_cc_toolchain_resolution
 build --output_filter='^(?!@com_github_intelxed_xed//).*'
 
 build --experimental_sandbox_base=/dev/shm
+
+build --features=c++17

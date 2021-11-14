@@ -5,7 +5,6 @@ workspace(
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
-load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
 
 # =====
 # setup the toolchain and common bazel libs
@@ -21,45 +20,41 @@ http_archive(
     ],
 )
 
-
-load("//third_party/sysroots:workspace.bzl", sysroots_repo = "repo", "sysroots")
-sysroots_repo()
-
-BAZEL_TOOLCHAIN_TAG = "0.6.3"
-BAZEL_TOOLCHAIN_SHA = "da607faed78c4cb5a5637ef74a36fdd2286f85ca5192222c4664efec2d529bb8"
-
-http_archive(
-    name = "com_grail_bazel_toolchain",
-    sha256 = BAZEL_TOOLCHAIN_SHA,
-    strip_prefix = "bazel-toolchain-{tag}".format(tag = BAZEL_TOOLCHAIN_TAG),
-    canonical_id = BAZEL_TOOLCHAIN_TAG,
-    url = "https://github.com/grailbio/bazel-toolchain/archive/{tag}.tar.gz".format(tag = BAZEL_TOOLCHAIN_TAG),
+git_repository(
+    name = "io_bazel_stardoc",
+    commit = "8f6d22452d088b49b13ba2c224af69ccc8ccbc90",
+    remote = "https://github.com/bazelbuild/stardoc.git",
+    shallow_since = "1620849756 -0400"
 )
 
-load("@com_grail_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
-bazel_toolchain_dependencies()
-
-http_archive(
-    name = "clang_13",
-    sha256 = "76d0bf002ede7a893f69d9ad2c4e101d15a8f4186fbfe24e74856c8449acd7c1",
-    strip_prefix = "clang+llvm-13.0.0-x86_64-linux-gnu-ubuntu-16.04",
-    url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.0/clang+llvm-13.0.0-x86_64-linux-gnu-ubuntu-16.04.tar.xz",
-    build_file = "@com_grail_bazel_toolchain//toolchain:BUILD.llvm_repo"
+git_repository(
+    name = "rules_cc_toolchain",
+    commit = "fc7d3aed91501a6f7871cb567a1ee516df0dbed9",
+    remote = "https://github.com/DCNick3/bazel_rules_cc_toolchain",
+    shallow_since = "1636803112 +0300"
 )
 
-load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "llvm_toolchain")
-llvm_toolchain(
-    name = "llvm_toolchain",
-    llvm_version = "12.0.0",
-    sysroot = sysroots(),
-    toolchain_roots = {
-        "linux-x86_64": "@clang_13//"
-    }
+load(
+    "@rules_cc_toolchain//config:rules_cc_toolchain_config_repository.bzl",
+    "rules_cc_toolchain_config",
 )
 
-load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
+rules_cc_toolchain_config(
+    name = "rules_cc_toolchain_config"
+)
 
-llvm_register_toolchains()
+load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
+
+bazel_skylib_workspace()
+
+load("@rules_cc_toolchain//:rules_cc_toolchain_deps.bzl", "rules_cc_toolchain_deps")
+
+rules_cc_toolchain_deps()
+
+load("@rules_cc_toolchain//cc_toolchain:cc_toolchain.bzl", "register_cc_toolchains")
+
+register_cc_toolchains()
+
 
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")

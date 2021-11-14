@@ -1,8 +1,10 @@
 cc_binary(
     name = "xed-ex1",
-    srcs = glob(["*.c"]),
-    hdrs = glob(["*.h"]),
+    srcs = glob([
+        "*.c",
+        "*.h",
+    ]),
     deps = [
-        "@com_github_intelxed_xed//:xed"
-    ]
-) 
+        "@com_github_intelxed_xed//:xed",
+    ],
+)

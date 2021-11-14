@@ -102,3 +102,4 @@ cmake-build-*
 
 # bazel build directories
 bazel-*
+.cache

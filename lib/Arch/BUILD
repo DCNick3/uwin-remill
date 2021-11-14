@@ -9,10 +9,7 @@ cc_library(
         "//lib/Arch/SPARC32:sparc32",
         "//lib/Arch/SPARC64:sparc64",
         "//lib/Arch/X86:x86",
-        "//:include-god",
-        "@com_github_gflags_gflags//:gflags",
-        "@com_github_google_glog//:glog",
-        "@llvm-project//llvm:Core",
+        "//:remill-base"
     ]
 )
  

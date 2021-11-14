@@ -7,10 +7,7 @@ cc_library(
         "OS.cpp"
     ],
     deps = [
-        "//:include-god",
-        "@com_github_gflags_gflags//:gflags",
-        "@com_github_google_glog//:glog",
-        "@llvm-project//llvm:Core",
+        "//:remill-base",
     ]
 )
  
