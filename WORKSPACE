@@ -76,6 +76,9 @@ llvm_repo("llvm-raw") # gets the llvm-raw repo
 load("//third_party/llvm:setup.bzl", "llvm_setup")
 llvm_setup("llvm-project") # gets the llvm-project repo
 
+load("//third_party/sysroots:workspace.bzl", sysroots_repo = "repo")
+sysroots_repo() # gets the sysroots repos
+
 
 http_archive(
     name = "com_github_gflags_gflags",

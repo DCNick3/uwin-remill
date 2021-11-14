@@ -1,4 +1,6 @@
 
+exports_files(["."])
+
 cc_library(
     name = "remill-base",
     hdrs = glob(["include/**/*.h"]),
