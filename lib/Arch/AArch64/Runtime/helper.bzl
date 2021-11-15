@@ -10,5 +10,6 @@ def helper(name, bits, le):
       "LITTLE_ENDIAN": "1" if le else "0",
     },
     bits = bits,
-    include_directories = ["//include:.", "//:."]
+    include_directories = ["//include:.", "//:."],
+    target = "aarch64",
   )

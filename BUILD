@@ -3,7 +3,7 @@ exports_files(["."])
 
 cc_library(
     name = "remill-base",
-    hdrs = glob(["include/**/*.h"]),
+    hdrs = ["//include:all_headers"],
     strip_include_prefix = "include",
     visibility = ["//:__subpackages__"],
     deps = [

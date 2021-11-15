@@ -19,10 +19,10 @@ def _bc_module_impl(ctx):
         [(x, ["-O3", "-g0"]) for x in ctx.files.instructions_src] + \
         [(x, ["-O0", "-g3"]) for x in ctx.files.basic_block_src]
     additional_deps = ctx.files.additional_deps
-    sysroot_deps = ctx.files._sysroot_deps
+    sysroot_deps = ctx.files.sysroot_deps
     clang_deps = ctx.files._clang_deps
 
-    sysroot = ctx.files._sysroot[0]
+    sysroot = ctx.files.sysroot[0]
     include_directories = [ x.path or "." for x in ctx.files.include_directories ]
 
     clang_path = ctx.files._clang[0].path
@@ -33,12 +33,19 @@ def _bc_module_impl(ctx):
             "staging/include"
         )
     )
+
+    target_triple = {
+        "x86_64": "x86_64-linux-gnu",
+        "aarch64": "aarch64-linux-gnu",
+        "armhf": "arm-linux-gnueabihf"
+    }[ctx.attr.target]
+
     # the sysroot paths
     # c++ includes should go first (magic)
     include_directories.append(paths.join(sysroot.path, "usr/include/c++/6"))
-    include_directories.append(paths.join(sysroot.path, "usr/include/x86_64-linux-gnu/c++/6"))
+    include_directories.append(paths.join(sysroot.path, "usr/include/%s/c++/6" % target_triple))
     include_directories.append(paths.join(sysroot.path, "usr/include"))
-    include_directories.append(paths.join(sysroot.path, "usr/include/x86_64-linux-gnu"))
+    include_directories.append(paths.join(sysroot.path, "usr/include/%s" % target_triple))
 
     output = ctx.actions.declare_file(ctx.label.name + ".bc")
 
@@ -50,6 +57,8 @@ def _bc_module_impl(ctx):
     object_files = []
 
     for source, additional_flags in sources:
+        bits = ctx.attr.bits
+
         obj_output = ctx.actions.declare_file(ctx.label.name + "_" + source.basename + ".obj.bc")
 
         object_files.append(obj_output)
@@ -57,9 +66,13 @@ def _bc_module_impl(ctx):
         args = ctx.actions.args()
         args.add_all(DEFAULT_BC_FLAGS)
         args.add_all(["-D%s=%s" % kv for kv in ctx.attr.definitions.items()])
-        args.add("-DADDRESS_SIZE_BITS=%d" % ctx.attr.bits)
+        args.add("-DADDRESS_SIZE_BITS=%d" % bits)
         args.add_all(include_directories, before_each = "-I")
         args.add("-isysroot", sysroot)
+        args.add("--target=" + target_triple)
+
+        if bits == 32:
+            args.add("-m32")
 
         # TODO: how do arch other than x86 compile?
         args.add_all(additional_flags)
@@ -98,7 +111,7 @@ def _bc_module_impl(ctx):
 
 CLANG_INTERNAL_HEADERS = ["stddef.h", "stdint.h", "stdbool.h", "stdarg.h", "float.h"]
 
-bc_module = rule(
+_bc_module = rule(
     implementation = _bc_module_impl,
     attrs = {
         "instructions_src": attr.label(
@@ -125,14 +138,18 @@ bc_module = rule(
         ),
         "include_directories": attr.label_list(
             allow_files = True,
-            doc = "List of additional include directories. The actual header files should be specified as additional_deps"
+            doc = "List of additional include directories. The actual header files should be specified as additional_deps",
         ),
-        "_sysroot": attr.label(
+        "target": attr.string(
+            values = ["x86_64", "aarch64", "armhf"],
+            doc = "Target to build for (only processor; linux is assumed); x86_64 + bits=32 -> i686",
+        ),
+        "sysroot": attr.label(
             allow_single_file = True,
-            default = "@bitcode_sysroot//:."
+            mandatory = True,
         ),
-        "_sysroot_deps": attr.label(
-            default = "@bitcode_sysroot//:all_files"
+        "sysroot_deps": attr.label(
+            mandatory = True,
         ),
         "_llvm_link": attr.label(
             executable = True,
@@ -151,3 +168,26 @@ bc_module = rule(
         )
     }
 )
+
+def bc_module(name, instructions_src, basic_block_src, additional_deps, definitions, bits, include_directories, target):
+    sysroots = {
+        'x86_64': "@bitcode_sysroot_amd64",
+        'aarch64': "@bitcode_sysroot_arm64",
+        'armhf': "@bitcode_sysroot_armhf",
+    }
+    sysroot = sysroots[target]
+    sysroot_deps = sysroot + "//:all_files"
+    sysroot = sysroot + "//:."
+
+    _bc_module(
+        name = name,
+        instructions_src = instructions_src,
+        basic_block_src = basic_block_src,
+        additional_deps = additional_deps,
+        definitions = definitions,
+        bits = bits,
+        include_directories = include_directories,
+        target = target,
+        sysroot = sysroot,
+        sysroot_deps = sysroot_deps,
+    )

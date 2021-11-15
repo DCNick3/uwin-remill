@@ -1,10 +1,44 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("//third_party/sysroots/debian:debian_sysroot.bzl", "debian_sysroot")
 
 def repo():
-    http_archive(
-        name = "bitcode_sysroot",
-        sha256 = "84656a6df544ecef62169cfe3ab6e41bb4346a62d3ba2a045dc5a0a2ecea94a3",
-        urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/toolchain/2202c161310ffde63729f29d27fe7bb24a0bc540/debian_stretch_amd64_sysroot.tar.xz"],
-        build_file = "//third_party/sysroots:bitcode_sysroot.BUILD",
+    debian_sysroot(
+        name = "bitcode_sysroot_amd64",
+        arch = "amd64",
+        distro = "stretch",
+        packages = [
+            # no dependencies are resolved here (because they don't make sense for us anyways)
+            # only the bare minimum should be specified here
+            "libc6-dev",
+            "libc6-dev-i386",
+            "libstdc++-6-dev",
+            "linux-libc-dev",
+        ]
+    )
+
+    debian_sysroot(
+        name = "bitcode_sysroot_arm64",
+        arch = "arm64",
+        distro = "stretch",
+        packages = [
+            # no dependencies are resolved here (because they don't make sense for us anyways)
+            # only the bare minimum should be specified here
+            "libc6-dev",
+            "libstdc++-6-dev",
+            "linux-libc-dev",
+        ]
+    )
+
+    debian_sysroot(
+        name = "bitcode_sysroot_armhf",
+        arch = "armhf",
+        distro = "stretch",
+        packages = [
+            # no dependencies are resolved here (because they don't make sense for us anyways)
+            # only the bare minimum should be specified here
+            "libc6-dev",
+            "libstdc++-6-dev",
+            "linux-libc-dev",
+        ]
     )
 
