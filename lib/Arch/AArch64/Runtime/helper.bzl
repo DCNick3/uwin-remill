@@ -1,14 +1,13 @@
 load("//build_tools/BCCompiler:bc-compiler.bzl", "bc_module")
 
-def helper(name, bits, avx, avx512):
+def helper(name, bits, le):
   bc_module(
     name = name,
     basic_block_src = "BasicBlock.cpp",
     instructions_src = "Instructions.cpp",
-    additional_deps = ["//lib/Arch/X86/Semantics:all", "//include:all_headers"],
+    additional_deps = ["//lib/Arch/AArch64/Semantics:all", "//include:all_headers"],
     definitions = {
-      "HAS_FEATURE_AVX": "1" if avx else "0",
-      "HAS_FEATURE_AVX512": "1" if avx512 else "0",
+      "LITTLE_ENDIAN": "1" if le else "0",
     },
     bits = bits,
     include_directories = ["//include:.", "//:."]

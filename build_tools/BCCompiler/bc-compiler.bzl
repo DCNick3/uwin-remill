@@ -15,7 +15,9 @@ DEFAULT_BC_FLAGS = [
 
 
 def _bc_module_impl(ctx):
-    sources = ctx.files.srcs
+    sources = \
+        [(x, ["-O3", "-g0"]) for x in ctx.files.instructions_src] + \
+        [(x, ["-O0", "-g3"]) for x in ctx.files.basic_block_src]
     additional_deps = ctx.files.additional_deps
     sysroot_deps = ctx.files._sysroot_deps
     clang_deps = ctx.files._clang_deps
@@ -43,11 +45,11 @@ def _bc_module_impl(ctx):
     clang = ctx.executable._clang
     llvm_link = ctx.executable._llvm_link
 
-    full_inputs = sources + additional_deps + sysroot_deps + clang_deps
+    full_inputs = [f for f,a in sources] + additional_deps + sysroot_deps + clang_deps
 
     object_files = []
 
-    for source in sources:
+    for source, additional_flags in sources:
         obj_output = ctx.actions.declare_file(ctx.label.name + "_" + source.basename + ".obj.bc")
 
         object_files.append(obj_output)
@@ -59,7 +61,8 @@ def _bc_module_impl(ctx):
         args.add_all(include_directories, before_each = "-I")
         args.add("-isysroot", sysroot)
 
-        #args.add("-v")
+        # TODO: how do arch other than x86 compile?
+        args.add_all(additional_flags)
 
         args.add("-c")
         args.add(source)
@@ -98,10 +101,15 @@ CLANG_INTERNAL_HEADERS = ["stddef.h", "stdint.h", "stdbool.h", "stdarg.h", "floa
 bc_module = rule(
     implementation = _bc_module_impl,
     attrs = {
-        "srcs": attr.label_list(
+        "instructions_src": attr.label(
             mandatory = True,
-            allow_files = [".cpp"],
-            doc = "Files to be fed into the compiler to produce bitcode",
+            allow_single_file = [".cpp"],
+            doc = "Files to be fed into the compiler to produce instructions bitcode",
+        ),
+        "basic_block_src": attr.label(
+            mandatory = True,
+            allow_single_file = [".cpp"],
+            doc = "Files to be fed into the compiler to produce basic block bitcode",
         ),
         "additional_deps": attr.label_list(
             mandatory = True,
