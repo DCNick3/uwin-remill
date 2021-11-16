@@ -18,6 +18,7 @@ cc_library(
     deps = [
         "//:remill-base",
         ":semantics",
-    ]
+    ],
+    visibility = ["//:__pkg__"],
 )
  

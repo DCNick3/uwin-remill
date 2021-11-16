@@ -65,6 +65,9 @@
 
 #include "lib/BC/semantics.h"
 
+// I don't have time for your riddles!
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 DECLARE_string(arch);
 
 DEFINE_string(
@@ -243,7 +246,7 @@ llvm::Value *LoadStatePointer(llvm::BasicBlock *block) {
 llvm::Value *LoadProgramCounter(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
   auto pcref = LoadProgramCounterRef(block);
-  return ir.CreateLoad(pcref->getType(), pcref);
+  return ir.CreateLoad(pcref);
 }
 
 // Return a reference to the current program counter.
@@ -260,7 +263,7 @@ llvm::Value *LoadNextProgramCounterRef(llvm::BasicBlock *block) {
 llvm::Value *LoadNextProgramCounter(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
   auto pcref = LoadNextProgramCounterRef(block);
-  return ir.CreateLoad(pcref->getType(), pcref);
+  return ir.CreateLoad(pcref);
 }
 
 // Return a reference to the return program counter.
@@ -290,7 +293,7 @@ void StoreProgramCounter(llvm::BasicBlock *block, uint64_t pc) {
 llvm::Value *LoadMemoryPointer(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
   auto ref = LoadMemoryPointerRef(block);
-  return ir.CreateLoad(ref->getType(), ref);
+  return ir.CreateLoad(ref);
 }
 
 // Return an `llvm::Value *` that is an `i1` (bool type) representing whether
@@ -298,7 +301,7 @@ llvm::Value *LoadMemoryPointer(llvm::BasicBlock *block) {
 llvm::Value *LoadBranchTaken(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
   auto ref = FindVarInFunction(block->getParent(), kBranchTakenVariableName);
-  auto cond = ir.CreateLoad(ref->getType(), ref);
+  auto cond = ir.CreateLoad(ref);
   auto true_val = llvm::ConstantInt::get(cond->getType(), 1);
   return ir.CreateICmpEQ(cond, true_val);
 }
@@ -519,10 +522,12 @@ std::string FindSemanticsBitcode(std::string_view arch) {
   auto const* sm = semantics_create();
   auto arch_sem_filename = std::string(arch) + ".bc";
   while (sm->name != nullptr) {
-    if (arch_sem_filename == sm->name)
+    if (arch_sem_filename == sm->name) {
       // This creates unnecessary copy.. Duh
       LOG(INFO) << "Found semantics for  " << arch << " in the embedded files";
       return std::string(sm->data, sm->data + sm->size);
+    }
+    sm++;
   }
 
   LOG(FATAL) << "Cannot find semantics bitcode file for " << arch << ".";
@@ -2054,7 +2059,7 @@ llvm::Value *StoreToMemory(const IntrinsicTable &intrinsics,
             addr, llvm::ConstantInt::get(addr->getType(), i, false));
         gep_indices[1] = llvm::ConstantInt::get(index_type, i, false);
         auto byte_ptr = ir.CreateInBoundsGEP(i8_array, byte_array, gep_indices);
-        args_3[2] = ir.CreateLoad(byte_ptr->getType(), byte_ptr);
+        args_3[2] = ir.CreateLoad(byte_ptr);
         args_3[0] = ir.CreateCall(intrinsics.write_memory_8, args_3);
       }
 

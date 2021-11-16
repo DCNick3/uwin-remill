@@ -17,7 +17,8 @@ DEFAULT_BC_FLAGS = [
 def _bc_module_impl(ctx):
     sources = \
         [(x, ["-O3", "-g0"]) for x in ctx.files.instructions_src] + \
-        [(x, ["-O0", "-g3"]) for x in ctx.files.basic_block_src]
+        [(x, ["-O0", "-g3"]) for x in ctx.files.basic_block_src] + \
+        [(x, ["-O0", "-g0"]) for x in ctx.files.intrinsics_src]
     additional_deps = ctx.files.additional_deps
     sysroot_deps = ctx.files.sysroot_deps
     clang_deps = ctx.files._clang_deps
@@ -123,6 +124,11 @@ _bc_module = rule(
             mandatory = True,
             allow_single_file = [".cpp"],
             doc = "Files to be fed into the compiler to produce basic block bitcode",
+        ),
+        "intrinsics_src": attr.label(
+            allow_single_file = [".cpp"],
+            default = "//lib/Arch/Runtime:Intrinsics.cpp",
+            doc = "Files to be fed into the compiler to produce intrinsics bitcode",
         ),
         "additional_deps": attr.label_list(
             mandatory = True,

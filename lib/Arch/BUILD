@@ -10,6 +10,7 @@ cc_library(
         "//lib/Arch/SPARC64:sparc64",
         "//lib/Arch/X86:x86",
         "//:remill-base"
-    ]
+    ],
+    visibility = ["//:__pkg__"]
 )
  

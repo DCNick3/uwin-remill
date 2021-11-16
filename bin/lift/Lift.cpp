@@ -47,6 +47,9 @@
 #include <string>
 #include <system_error>
 
+// I don't have time for your riddles!
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 DECLARE_string(arch);
 DECLARE_string(os);
 
