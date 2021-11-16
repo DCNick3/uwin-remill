@@ -425,7 +425,7 @@ bool TraceLifter::Impl::Lift(
           const auto next_pc_ref =
               LoadNextProgramCounterRef(fall_through_block);
           llvm::IRBuilder<> ir(fall_through_block);
-          ir.CreateStore(ir.CreateLoad(ret_pc_ref), next_pc_ref);
+          ir.CreateStore(ir.CreateLoad(ret_pc_ref->getType(), ret_pc_ref), next_pc_ref);
           ir.CreateBr(GetOrCreateBranchNotTakenBlock());
 
           AddCall(block, intrinsics->function_call);
@@ -460,7 +460,7 @@ bool TraceLifter::Impl::Lift(
           const auto ret_pc_ref = LoadReturnProgramCounterRef(taken_block);
           const auto next_pc_ref = LoadNextProgramCounterRef(taken_block);
           llvm::IRBuilder<> ir(taken_block);
-          ir.CreateStore(ir.CreateLoad(ret_pc_ref), next_pc_ref);
+          ir.CreateStore(ir.CreateLoad(ret_pc_ref->getType(), ret_pc_ref), next_pc_ref);
           ir.CreateBr(orig_not_taken_block);
           block = orig_not_taken_block;
           continue;
@@ -486,7 +486,7 @@ bool TraceLifter::Impl::Lift(
           const auto ret_pc_ref = LoadReturnProgramCounterRef(block);
           const auto next_pc_ref = LoadNextProgramCounterRef(block);
           llvm::IRBuilder<> ir(block);
-          ir.CreateStore(ir.CreateLoad(ret_pc_ref), next_pc_ref);
+          ir.CreateStore(ir.CreateLoad(ret_pc_ref->getType(), ret_pc_ref), next_pc_ref);
           ir.CreateBr(GetOrCreateBranchNotTakenBlock());
 
           continue;
@@ -526,7 +526,7 @@ bool TraceLifter::Impl::Lift(
           const auto ret_pc_ref = LoadReturnProgramCounterRef(taken_block);
           const auto next_pc_ref = LoadNextProgramCounterRef(taken_block);
           llvm::IRBuilder<> ir(taken_block);
-          ir.CreateStore(ir.CreateLoad(ret_pc_ref), next_pc_ref);
+          ir.CreateStore(ir.CreateLoad(ret_pc_ref->getType(), ret_pc_ref), next_pc_ref);
           ir.CreateBr(orig_not_taken_block);
           block = orig_not_taken_block;
           continue;
