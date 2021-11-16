@@ -147,6 +147,11 @@ std::unique_ptr<llvm::Module> LoadModuleFromFile(llvm::LLVMContext *context,
                                                  std::string_view file_name,
                                                  bool allow_failure = false);
 
+// Parses bitcode from memory
+std::unique_ptr<llvm::Module> LoadModuleFromMemory(llvm::LLVMContext *context,
+                                                 std::string_view module_data,
+                                                 bool allow_failure = false);
+
 // Loads the semantics for the `arch`-specific machine, i.e. the machine of the
 // code that we want to lift.
 std::unique_ptr<llvm::Module> LoadArchSemantics(const Arch *arch);
@@ -172,7 +177,7 @@ std::string FindTargetSemanticsBitcodeFile(void) __attribute__((deprecated));
 std::string FindHostSemanticsBitcodeFile(void) __attribute__((deprecated));
 
 // Find a semantics bitcode file for the architecture `arch`.
-std::string FindSemanticsBitcodeFile(std::string_view arch);
+std::string FindSemanticsBitcode(std::string_view arch);
 
 // Return a pointer to the Nth argument (N=0 is the first argument).
 llvm::Argument *NthArgument(llvm::Function *func, size_t index);

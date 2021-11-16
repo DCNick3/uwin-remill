@@ -17,7 +17,10 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include <exception>
 #include <sstream>
+#include <fstream>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <utility>
@@ -59,6 +62,8 @@
 #include "remill/BC/Util.h"
 #include "remill/BC/Version.h"
 #include "remill/OS/FileSystem.h"
+
+#include "lib/BC/semantics.h"
 
 DECLARE_string(arch);
 
@@ -237,7 +242,8 @@ llvm::Value *LoadStatePointer(llvm::BasicBlock *block) {
 // Return the current program counter.
 llvm::Value *LoadProgramCounter(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
-  return ir.CreateLoad(LoadProgramCounterRef(block));
+  auto pcref = LoadProgramCounterRef(block);
+  return ir.CreateLoad(pcref->getType(), pcref);
 }
 
 // Return a reference to the current program counter.
@@ -253,7 +259,8 @@ llvm::Value *LoadNextProgramCounterRef(llvm::BasicBlock *block) {
 // Return the next program counter.
 llvm::Value *LoadNextProgramCounter(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
-  return ir.CreateLoad(LoadNextProgramCounterRef(block));
+  auto pcref = LoadNextProgramCounterRef(block);
+  return ir.CreateLoad(pcref->getType(), pcref);
 }
 
 // Return a reference to the return program counter.
@@ -282,15 +289,16 @@ void StoreProgramCounter(llvm::BasicBlock *block, uint64_t pc) {
 // Return the current memory pointer.
 llvm::Value *LoadMemoryPointer(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
-  return ir.CreateLoad(LoadMemoryPointerRef(block));
+  auto ref = LoadMemoryPointerRef(block);
+  return ir.CreateLoad(ref->getType(), ref);
 }
 
 // Return an `llvm::Value *` that is an `i1` (bool type) representing whether
 // or not a conditional branch is taken.
 llvm::Value *LoadBranchTaken(llvm::BasicBlock *block) {
   llvm::IRBuilder<> ir(block);
-  auto cond = ir.CreateLoad(
-      FindVarInFunction(block->getParent(), kBranchTakenVariableName));
+  auto ref = FindVarInFunction(block->getParent(), kBranchTakenVariableName);
+  auto cond = ir.CreateLoad(ref->getType(), ref);
   auto true_val = llvm::ConstantInt::get(cond->getType(), 1);
   return ir.CreateICmpEQ(cond, true_val);
 }
@@ -322,9 +330,9 @@ llvm::GlobalVariable *FindGlobaVariable(llvm::Module *module,
 // code that we want to lift.
 std::unique_ptr<llvm::Module> LoadArchSemantics(const Arch *arch) {
   auto arch_name = GetArchName(arch->arch_name);
-  auto path = FindSemanticsBitcodeFile(arch_name);
-  LOG(INFO) << "Loading " << arch_name << " semantics from file " << path;
-  auto module = LoadModuleFromFile(arch->context, path);
+  auto data = FindSemanticsBitcode(arch_name);
+
+  auto module = LoadModuleFromMemory(arch->context, data);
   arch->PrepareModule(module);
   arch->InitFromSemanticsModule(module.get());
   for (auto &func : *module) {
@@ -371,6 +379,39 @@ std::unique_ptr<llvm::Module> LoadModuleFromFile(llvm::LLVMContext *context,
   if (!VerifyModule(module.get())) {
     LOG_IF(FATAL, !allow_failure)
         << "Error verifying module read from file " << file_name_;
+    return {};
+  }
+
+  return module;
+}
+
+// Reads an LLVM module from a file.
+std::unique_ptr<llvm::Module> LoadModuleFromMemory(llvm::LLVMContext *context,
+                                                 std::string_view module_data,
+                                                 bool allow_failure) {
+  llvm::SMDiagnostic err;
+  llvm::StringRef data_string(module_data.data(), module_data.size());
+  llvm::MemoryBufferRef data(data_string, "module_data");
+
+  auto module = llvm::parseIR(data, err, *context);
+
+  if (!module) {
+    LOG_IF(FATAL, !allow_failure)
+        << "Unable to parse module from memory: "
+        << err.getMessage().str();
+    return {};
+  }
+
+  auto ec = module->materializeAll();  // Just in case.
+  if (ec) {
+    LOG_IF(FATAL, !allow_failure)
+        << "Unable to materialize everything from memory";
+    return {};
+  }
+
+  if (!VerifyModule(module.get())) {
+    LOG_IF(FATAL, !allow_failure)
+        << "Error verifying module read from memory";
     return {};
   }
 
@@ -453,76 +494,9 @@ bool StoreModuleIRToFile(llvm::Module *module, std::string_view file_name_,
   return true;
 }
 
-namespace {
-
-#ifndef REMILL_BUILD_SEMANTICS_DIR_X86
-#  error \
-      "Macro `REMILL_BUILD_SEMANTICS_DIR_X86` must be defined to support X86 and AMD64 architectures."
-#  define REMILL_BUILD_SEMANTICS_DIR_X86
-#endif  // REMILL_BUILD_SEMANTICS_DIR_X86
-
-#ifndef REMILL_BUILD_SEMANTICS_DIR_AARCH32
-#  error \
-      "Macro `REMILL_BUILD_SEMANTICS_DIR_AARCH32` must be defined to support AArch64 architecture."
-#  define REMILL_BUILD_SEMANTICS_DIR_AARCH32
-#endif  // REMILL_BUILD_SEMANTICS_DIR_AARCH32
-
-#ifndef REMILL_BUILD_SEMANTICS_DIR_AARCH64
-#  error \
-      "Macro `REMILL_BUILD_SEMANTICS_DIR_AARCH64` must be defined to support AArch64 architecture."
-#  define REMILL_BUILD_SEMANTICS_DIR_AARCH64
-#endif  // REMILL_BUILD_SEMANTICS_DIR_AARCH64
-
-#ifndef REMILL_BUILD_SEMANTICS_DIR_SPARC32
-#  error \
-      "Macro `REMILL_BUILD_SEMANTICS_DIR_SPARC32` must be defined to support the SPARC32 architectures."
-#  define REMILL_BUILD_SEMANTICS_DIR_SPARC32
-#endif  // REMILL_BUILD_SEMANTICS_DIR_SPARC32
-
-#ifndef REMILL_BUILD_SEMANTICS_DIR_SPARC64
-#  error \
-      "Macro `REMILL_BUILD_SEMANTICS_DIR_SPARC64` must be defined to support the SPARC64 architectures."
-#  define REMILL_BUILD_SEMANTICS_DIR_SPARC64
-#endif  // REMILL_BUILD_SEMANTICS_DIR_SPARC64
-
-#ifndef REMILL_INSTALL_SEMANTICS_DIR
-#  error "Macro `REMILL_INSTALL_SEMANTICS_DIR` must be defined."
-#  define REMILL_INSTALL_SEMANTICS_DIR
-#endif  // REMILL_INSTALL_SEMANTICS_DIR
-
-#define _S(x) #x
-#define S(x) _S(x)
-#define MAJOR_MINOR S(LLVM_VERSION_MAJOR) "." S(LLVM_VERSION_MINOR)
-
-static const char *gSemanticsSearchPaths[] = {
-
-    // Derived from the build.
-    REMILL_BUILD_SEMANTICS_DIR_X86 "\0",
-    REMILL_BUILD_SEMANTICS_DIR_AARCH32 "\0",
-    REMILL_BUILD_SEMANTICS_DIR_AARCH64 "\0",
-    REMILL_BUILD_SEMANTICS_DIR_SPARC32 "\0",
-    REMILL_BUILD_SEMANTICS_DIR_SPARC64 "\0",
-    REMILL_INSTALL_SEMANTICS_DIR "\0",
-    "/usr/local/share/remill/" MAJOR_MINOR "/semantics",
-    "/usr/share/remill/" MAJOR_MINOR "/semantics",
-    "/share/remill/" MAJOR_MINOR "/semantics",
-};
-
-}  // namespace
-
-// Find the path to the semantics bitcode file associated with `FLAGS_arch`.
-std::string FindTargetSemanticsBitcodeFile(void) {
-  return FindSemanticsBitcodeFile(FLAGS_arch);
-}
-
-// Find the path to the semantics bitcode file associated with `REMILL_ARCH`,
-// the architecture on which remill is compiled.
-std::string FindHostSemanticsBitcodeFile(void) {
-  return FindSemanticsBitcodeFile(REMILL_ARCH);
-}
 
 // Find the path to the semantics bitcode file.
-std::string FindSemanticsBitcodeFile(std::string_view arch) {
+std::string FindSemanticsBitcode(std::string_view arch) {
   if (!FLAGS_semantics_search_paths.empty()) {
     std::stringstream pp;
     pp << FLAGS_semantics_search_paths;
@@ -530,21 +504,29 @@ std::string FindSemanticsBitcodeFile(std::string_view arch) {
       std::stringstream ss;
       ss << sem_dir << "/" << arch << ".bc";
       if (auto sem_path = ss.str(); FileExists(sem_path)) {
-        return sem_path;
+
+        LOG(INFO) << "Found semantics for " << arch << " at " << sem_path;
+
+        std::ifstream t(sem_path);
+        std::stringstream buffer;
+        buffer << t.rdbuf();
+
+        return buffer.str();
       }
     }
   }
 
-  for (auto sem_dir : gSemanticsSearchPaths) {
-    std::stringstream ss;
-    ss << sem_dir << "/" << arch << ".bc";
-    if (auto sem_path = ss.str(); FileExists(sem_path)) {
-      return sem_path;
-    }
+  auto const* sm = semantics_create();
+  auto arch_sem_filename = std::string(arch) + ".bc";
+  while (sm->name != nullptr) {
+    if (arch_sem_filename == sm->name)
+      // This creates unnecessary copy.. Duh
+      LOG(INFO) << "Found semantics for  " << arch << " in the embedded files";
+      return std::string(sm->data, sm->data + sm->size);
   }
 
-  LOG(FATAL) << "Cannot find path to " << arch << " semantics bitcode file.";
-  return "";
+  LOG(FATAL) << "Cannot find semantics bitcode file for " << arch << ".";
+  std::terminate();
 }
 
 namespace {
@@ -1854,7 +1836,7 @@ llvm::Value *LoadFromMemory(const IntrinsicTable &intrinsics,
       auto res = ir.CreateAlloca(type);
       llvm::Value *args_3[3] = {args_2[0], args_2[1], res};
       ir.CreateCall(intrinsics.read_memory_f80, args_3);
-      return ir.CreateLoad(res);
+      return ir.CreateLoad(type, res);
     }
 
     case llvm::Type::X86_MMXTyID:
@@ -1895,7 +1877,7 @@ llvm::Value *LoadFromMemory(const IntrinsicTable &intrinsics,
         ir.CreateStore(byte, byte_ptr);
       }
 
-      return ir.CreateLoad(res);
+      return ir.CreateLoad(type, res);
     }
 
     // Building up a structure requires us to start with an undef value,
@@ -2072,7 +2054,7 @@ llvm::Value *StoreToMemory(const IntrinsicTable &intrinsics,
             addr, llvm::ConstantInt::get(addr->getType(), i, false));
         gep_indices[1] = llvm::ConstantInt::get(index_type, i, false);
         auto byte_ptr = ir.CreateInBoundsGEP(i8_array, byte_array, gep_indices);
-        args_3[2] = ir.CreateLoad(byte_ptr);
+        args_3[2] = ir.CreateLoad(byte_ptr->getType(), byte_ptr);
         args_3[0] = ir.CreateCall(intrinsics.write_memory_8, args_3);
       }
 

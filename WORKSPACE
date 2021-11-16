@@ -29,9 +29,9 @@ git_repository(
 
 git_repository(
     name = "rules_cc_toolchain",
-    commit = "fc7d3aed91501a6f7871cb567a1ee516df0dbed9",
+    commit = "e9108c776df6c919b4c56ca8ba9fe26f98175c52",
     remote = "https://github.com/DCNick3/bazel_rules_cc_toolchain",
-    shallow_since = "1636803112 +0300"
+    shallow_since = "1637068367 +0300",
 )
 
 load(
@@ -92,6 +92,13 @@ http_archive(
     sha256 = "21bc744fb7f2fa701ee8db339ded7dce4f975d0d55837a97be7d46e8382dea5a",
     strip_prefix = "glog-0.5.0",
     urls = ["https://github.com/google/glog/archive/v0.5.0.zip"],
+)
+
+http_archive(
+  name = "com_google_googletest",
+  sha256 = "5cf189eb6847b4f8fc603a3ffff3b0771c08eec7dd4bd961bfd45477dd13eb73",
+  strip_prefix = "googletest-609281088cfefc76f9d0ce82e1ff6c30cc3591e5",
+  urls = ["https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip"],
 )
 
 

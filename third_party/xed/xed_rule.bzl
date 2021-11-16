@@ -1,9 +1,7 @@
 
 load("@bazel_skylib//lib:collections.bzl", "collections")
-load(
-    "@rules_cc//cc:action_names.bzl",
-    "C_COMPILE_ACTION_NAME"
-)
+load("@rules_cc//cc:action_names.bzl", "C_COMPILE_ACTION_NAME")
+load("@rules_cc//cc:toolchain_utils.bzl", "find_cpp_toolchain")
 
 
 FOREIGN_CC_DISABLED_FEATURES = [
@@ -59,7 +57,7 @@ def _create_libraries_to_link(ctx, static_libraries, cc_toolchain, feature_confi
     return depset(direct = libs)
 
 def _compile_xed_impl(ctx):
-    cc_toolchain = ctx.toolchains["@bazel_tools//tools/cpp:toolchain_type"]
+    cc_toolchain = find_cpp_toolchain(ctx)
     
     outdir = ctx.actions.declare_directory('out')
     out_includedir = ctx.actions.declare_directory('out/include')
