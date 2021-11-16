@@ -29,7 +29,6 @@
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
-#include <llvm/IR/OptBisect.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
@@ -45,23 +44,9 @@
 
 namespace remill {
 
-// Skips or runs optional passes.
-struct CustomOptPassGate : public llvm::OptPassGate {
-  explicit CustomOptPassGate() = default;
-  bool shouldRunPass(const llvm::Pass *P, llvm::StringRef IRDescription) override {
-    //auto const& pass_name = .str();
-    if (P->getPassName() == "Global Variable Optimizer")
-      return false;
-    return OptPassGate::shouldRunPass(P, IRDescription);
-  }
-  [[nodiscard]] bool isEnabled() const override { return true; }
-};
-
 void OptimizeModule(const remill::Arch *arch, llvm::Module *module,
                     std::function<llvm::Function *(void)> generator,
                     OptimizationGuide guide) {
-  CustomOptPassGate pass_gate;
-  module->getContext().setOptPassGate(pass_gate);
 
   auto bb_func = BasicBlockFunction(module);
   auto slots = StateSlots(arch, module);
@@ -75,7 +60,7 @@ void OptimizeModule(const remill::Arch *arch, llvm::Module *module,
   TLI->disableAllFunctions();  // `-fno-builtin`.
 
   llvm::PassManagerBuilder builder;
-  builder.OptLevel = 0;
+  builder.OptLevel = 3;
   builder.SizeLevel = 0;
   builder.Inliner = llvm::createFunctionInliningPass(250);
   builder.LibraryInfo = TLI;  // Deleted by `llvm::~PassManagerBuilder`.
@@ -111,9 +96,6 @@ void OptimizeModule(const remill::Arch *arch, llvm::Module *module,
 // NOTE(pag): It is an error to specify `guide.eliminate_dead_stores` as
 //            `true`.
 void OptimizeBareModule(llvm::Module *module, OptimizationGuide guide) {
-  CustomOptPassGate pass_gate;
-  module->getContext().setOptPassGate(pass_gate);
-
   CHECK(!guide.eliminate_dead_stores);
   llvm::legacy::FunctionPassManager func_manager(module);
   llvm::legacy::PassManager module_manager;
@@ -124,7 +106,7 @@ void OptimizeBareModule(llvm::Module *module, OptimizationGuide guide) {
   TLI->disableAllFunctions();  // `-fno-builtin`.
 
   llvm::PassManagerBuilder builder;
-  builder.OptLevel = 1;
+  builder.OptLevel = 3;
   builder.SizeLevel = 0;
   builder.Inliner = llvm::createFunctionInliningPass(250);
   builder.LibraryInfo = TLI;  // Deleted by `llvm::~PassManagerBuilder`.
