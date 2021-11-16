@@ -6,7 +6,7 @@ cc_embed_data(
     srcs = [
         "//lib/Arch/X86/Runtime:all",
         "//lib/Arch/AArch64/Runtime:all",
-        "//lib/Arch/AArch32/Runtime:all",
+        #"//lib/Arch/AArch32/Runtime:all",
     ],
     cpp_namespace = "remill",
     h_file_output = "semantics.h",

@@ -1,3 +1,4 @@
+exports_files(["Arch.h"])
 
 cc_library(
     name = "arch",
