@@ -21,14 +21,6 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-"""cc_binary(
-    name = "generate_cc_embed_data",
-    srcs = ["generate_cc_embed_data.cc"],
-    deps = [
-        "@com_github_gflags_gflags//:gflags",
-    ],
-)"""
-
 py_binary(
   name = "generate_embed",
   srcs = ["embed.py"],
@@ -41,9 +33,7 @@ cc_embed_data(
         "file1.txt",
         "data/file2.txt",
     ],
-    #cc_file_output = "testembed1.cc",
     cpp_namespace = "foobar",
-    #flatten = True,
     h_file_output = "testembed1.h",
 )
 
