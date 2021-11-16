@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "remill/Arch/Arch.h"
+#include "../Arch.h"  // For `Arch` and `ArchImpl`.
 
 #include <glog/logging.h>
 #include <llvm/ADT/Triple.h>
@@ -319,6 +319,8 @@ std::map<xed_iform_enum_t, xed_iform_enum_t> kUnlockedIform = {
     {XED_IFORM_CMPXCHG16B_LOCK_MEMdq, XED_IFORM_CMPXCHG16B_MEMdq},
     {XED_IFORM_NEG_LOCK_MEMb, XED_IFORM_NEG_MEMb},
     {XED_IFORM_NEG_LOCK_MEMv, XED_IFORM_NEG_MEMv},
+    {XED_IFORM_XCHG_MEMv_GPRv, XED_IFORM_XCHG_MEMv_GPRv},
+    {XED_IFORM_XCHG_MEMb_GPR8, XED_IFORM_XCHG_MEMb_GPR8},
 };
 
 // Name of this instruction function.
@@ -375,9 +377,10 @@ static bool DecodeXED(xed_decoded_inst_t *xedd, const xed_state_t *mode,
       ss << ' ' << std::hex << std::setw(2) << std::setfill('0')
          << (static_cast<unsigned>(b) & 0xFFu);
     }
-    LOG(ERROR) << "Unable to decode instruction at " << std::hex << address
-               << " with bytes" << ss.str()
-               << " and error: " << xed_error_enum_t2str(err) << std::dec;
+    DLOG(WARNING)
+        << "Unable to decode instruction at " << std::hex << address
+        << " with bytes" << ss.str()
+        << " and error: " << xed_error_enum_t2str(err) << std::dec;
     return false;
   }
 
@@ -573,11 +576,10 @@ static void DecodeRegister(Instruction &inst, const xed_decoded_inst_t *xedd,
   op.reg = RegOp(reg);
   op.size = op.reg.size;
 
-  auto read_op = op;
-
   // Pass the register by reference.
   if (xed_operand_written(xedo)) {
     op.action = Operand::kActionWrite;
+
     if (Is64Bit(inst.arch_name)) {
       if (XED_REG_GPR32_FIRST <= reg && XED_REG_GPR32_LAST >= reg) {
         op.reg = RegOp(xed_get_largest_enclosing_register(reg));
@@ -600,8 +602,8 @@ static void DecodeRegister(Instruction &inst, const xed_decoded_inst_t *xedd,
   }
 
   if (xed_operand_read(xedo)) {
-    read_op.action = Operand::kActionRead;
-    inst.operands.push_back(read_op);
+    op.action = Operand::kActionRead;
+    inst.operands.push_back(op);
   }
 }
 
@@ -793,27 +795,32 @@ class X86Arch final : public Arch {
   virtual ~X86Arch(void);
 
   // Returns the name of the stack pointer register.
-  std::string_view StackPointerRegisterName(void) const override;
+  std::string_view StackPointerRegisterName(void) const final;
 
   // Returns the name of the program counter register.
-  std::string_view ProgramCounterRegisterName(void) const override;
+  std::string_view ProgramCounterRegisterName(void) const final;
 
   // Decode an instruction.
   bool DecodeInstruction(uint64_t address, std::string_view inst_bytes,
-                         Instruction &inst) const override;
+                         Instruction &inst) const final;
 
   // Maximum number of bytes in an instruction.
-  uint64_t MaxInstructionSize(void) const override;
+  uint64_t MinInstructionAlign(void) const final;
+  uint64_t MinInstructionSize(void) const final;
+  uint64_t MaxInstructionSize(bool permit_fuse_idioms) const final;
 
-  llvm::Triple Triple(void) const override;
-  llvm::DataLayout DataLayout(void) const override;
+  llvm::Triple Triple(void) const final;
+  llvm::DataLayout DataLayout(void) const final;
 
   // Default calling convention for this architecture.
-  llvm::CallingConv::ID DefaultCallingConv(void) const override;
+  llvm::CallingConv::ID DefaultCallingConv(void) const final;
+
+  // Populate the table of register information.
+  void PopulateRegisterTable(void) const final;
 
   // Populate the `__remill_basic_block` function with variables.
   void PopulateBasicBlockFunction(llvm::Module *module,
-                                  llvm::Function *bb_func) const override;
+                                  llvm::Function *bb_func) const final;
 
  private:
   X86Arch(void) = delete;
@@ -833,8 +840,16 @@ X86Arch::X86Arch(llvm::LLVMContext *context_, OSName os_name_,
 
 X86Arch::~X86Arch(void) {}
 
+uint64_t X86Arch::MinInstructionAlign(void) const {
+  return 1;
+}
+
+uint64_t X86Arch::MinInstructionSize(void) const {
+  return 1;
+}
+
 // Maximum number of bytes in an instruction for this particular architecture.
-uint64_t X86Arch::MaxInstructionSize(void) const {
+uint64_t X86Arch::MaxInstructionSize(bool) const {
   return 15;
 }
 
@@ -945,6 +960,194 @@ llvm::DataLayout X86Arch::DataLayout(void) const {
   return llvm::DataLayout(dl);
 }
 
+static bool IsAVX(xed_isa_set_enum_t isa_set, xed_category_enum_t category) {
+  switch (isa_set) {
+    case XED_ISA_SET_AVX:
+    case XED_ISA_SET_AVX2:
+    case XED_ISA_SET_AVX2GATHER:
+    case XED_ISA_SET_AVXAES:
+    case XED_ISA_SET_AVX_GFNI:
+    case XED_ISA_SET_AVX_VNNI:
+      return true;
+    default:
+      break;
+  }
+  switch (category) {
+    case XED_CATEGORY_AVX:
+    case XED_CATEGORY_AVX2:
+    case XED_CATEGORY_AVX2GATHER:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool IsAVX512(xed_isa_set_enum_t isa_set, xed_category_enum_t category) {
+  switch (isa_set) {
+    case XED_ISA_SET_AVX512BW_128:
+    case XED_ISA_SET_AVX512BW_128N:
+    case XED_ISA_SET_AVX512BW_256:
+    case XED_ISA_SET_AVX512BW_512:
+    case XED_ISA_SET_AVX512BW_KOP:
+    case XED_ISA_SET_AVX512CD_128:
+    case XED_ISA_SET_AVX512CD_256:
+    case XED_ISA_SET_AVX512CD_512:
+    case XED_ISA_SET_AVX512DQ_128:
+    case XED_ISA_SET_AVX512DQ_128N:
+    case XED_ISA_SET_AVX512DQ_256:
+    case XED_ISA_SET_AVX512DQ_512:
+    case XED_ISA_SET_AVX512DQ_KOP:
+    case XED_ISA_SET_AVX512DQ_SCALAR:
+    case XED_ISA_SET_AVX512ER_512:
+    case XED_ISA_SET_AVX512ER_SCALAR:
+    case XED_ISA_SET_AVX512F_128:
+    case XED_ISA_SET_AVX512F_128N:
+    case XED_ISA_SET_AVX512F_256:
+    case XED_ISA_SET_AVX512F_512:
+    case XED_ISA_SET_AVX512F_KOP:
+    case XED_ISA_SET_AVX512F_SCALAR:
+    case XED_ISA_SET_AVX512PF_512:
+    case XED_ISA_SET_AVX512_4FMAPS_512:
+    case XED_ISA_SET_AVX512_4FMAPS_SCALAR:
+    case XED_ISA_SET_AVX512_4VNNIW_512:
+    case XED_ISA_SET_AVX512_BF16_128:
+    case XED_ISA_SET_AVX512_BF16_256:
+    case XED_ISA_SET_AVX512_BF16_512:
+    case XED_ISA_SET_AVX512_BITALG_128:
+    case XED_ISA_SET_AVX512_BITALG_256:
+    case XED_ISA_SET_AVX512_BITALG_512:
+    case XED_ISA_SET_AVX512_GFNI_128:
+    case XED_ISA_SET_AVX512_GFNI_256:
+    case XED_ISA_SET_AVX512_GFNI_512:
+    case XED_ISA_SET_AVX512_IFMA_128:
+    case XED_ISA_SET_AVX512_IFMA_256:
+    case XED_ISA_SET_AVX512_IFMA_512:
+    case XED_ISA_SET_AVX512_VAES_128:
+    case XED_ISA_SET_AVX512_VAES_256:
+    case XED_ISA_SET_AVX512_VAES_512:
+    case XED_ISA_SET_AVX512_VBMI2_128:
+    case XED_ISA_SET_AVX512_VBMI2_256:
+    case XED_ISA_SET_AVX512_VBMI2_512:
+    case XED_ISA_SET_AVX512_VBMI_128:
+    case XED_ISA_SET_AVX512_VBMI_256:
+    case XED_ISA_SET_AVX512_VBMI_512:
+    case XED_ISA_SET_AVX512_VNNI_128:
+    case XED_ISA_SET_AVX512_VNNI_256:
+    case XED_ISA_SET_AVX512_VNNI_512:
+    case XED_ISA_SET_AVX512_VP2INTERSECT_128:
+    case XED_ISA_SET_AVX512_VP2INTERSECT_256:
+    case XED_ISA_SET_AVX512_VP2INTERSECT_512:
+    case XED_ISA_SET_AVX512_VPCLMULQDQ_128:
+    case XED_ISA_SET_AVX512_VPCLMULQDQ_256:
+    case XED_ISA_SET_AVX512_VPCLMULQDQ_512:
+    case XED_ISA_SET_AVX512_VPOPCNTDQ_128:
+    case XED_ISA_SET_AVX512_VPOPCNTDQ_256:
+    case XED_ISA_SET_AVX512_VPOPCNTDQ_512:
+      return true;
+    default:
+      break;
+  }
+  switch (category) {
+    case XED_CATEGORY_AVX512:
+    case XED_CATEGORY_AVX512_4FMAPS:
+    case XED_CATEGORY_AVX512_4VNNIW:
+    case XED_CATEGORY_AVX512_BITALG:
+    case XED_CATEGORY_AVX512_VBMI:
+    case XED_CATEGORY_AVX512_VP2INTERSECT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Decode the destination register of a `pop <reg>`, where `byte` is the only
+// byte of a 1-byte opcode. On 64-bit, the same decoded by maps to a 64-bit
+// register. We apply a fixup below in `FillFusedCallPopRegOperands` to account
+// for upgrading the register.
+static const char *FusablePopReg32(char byte) {
+  switch (static_cast<uint8_t>(byte)) {
+    case 0x58: return "EAX";
+    case 0x59: return "ECX";
+    case 0x5a: return "EDX";
+    case 0x5b: return "EBX";
+    // NOTE(pag): We ignore `0x5c`, which is `pop rsp`, as that has funny
+    //            semantics and would be unusual to fuse.
+    case 0x5d: return "EBP";
+    case 0x5e: return "ESI";
+    case 0x5f: return "EDI";
+
+    default: return nullptr;
+  }
+}
+
+// Decode the destination register of a `pop r8` through `pop r10`, assuming
+// that we've already decoded the `0x41` prefix, and `byte` is the second byte
+// of the two-byte opcode.
+static const char *FusablePopReg64(char byte) {
+  switch (static_cast<uint8_t>(byte)) {
+    case 0x58: return "R8";
+    case 0x59: return "R9";
+    case 0x5a: return "R10";
+    case 0x5b: return "R11";
+    case 0x5c: return "R12";
+    case 0x5d: return "R13";
+    case 0x5e: return "R14";
+    case 0x5f: return "R15";
+    default: return nullptr;
+  }
+}
+
+// Fill in the operands for a fused `call+pop` pair. This ends up acting like
+// a `mov` variant, and the semantic is located in `DATAXFER`. Fusing of this
+// pair is beneficial to avoid downstream users from treating the initial call
+// as semantically being a function call, when really this is more of a move
+// instruction. Downstream users like McSema and Anvill benefit from seeing this
+// as a MOV-variant because of how they identify cross-references related to
+// uses of the program counter (`PC`) register.
+static void FillFusedCallPopRegOperands(Instruction &inst,
+                                        unsigned address_size,
+                                        const char *dest_reg_name,
+                                        unsigned call_inst_len) {
+  inst.operands.resize(2);
+  auto &dest = inst.operands[0];
+  auto &src = inst.operands[1];
+
+  dest.type = Operand::kTypeRegister;
+  dest.reg.name = dest_reg_name;
+  dest.reg.size = address_size;
+  dest.size = address_size;
+  dest.action = Operand::kActionWrite;
+
+  src.type = Operand::kTypeAddress;
+  src.size = address_size;
+  src.action = Operand::kActionRead;
+  src.addr.address_size = address_size;
+  src.addr.base_reg.name = "PC";
+  src.addr.base_reg.size = address_size;
+  src.addr.displacement = static_cast<int64_t>(call_inst_len);
+  src.addr.kind = Operand::Address::kAddressCalculation;
+
+  if (32 == address_size) {
+    inst.function = "CALL_POP_FUSED_32";
+
+  } else {
+    inst.function = "CALL_POP_FUSED_64";
+
+    // Rename the register to be a 64-bit register. `pop eax` when decoded as
+    // a 32-bit instruction, and `pop rax` when decoded as a 64-bit instruction,
+    // both have the same binary representation. So for these cases, we store
+    // a 32-bit register name, such as `EAX` in `dest_reg_name`. If we're doing
+    // a fuse on 64-bit, then we want to upgrade the destination register to
+    // its `R`-prefixed variant, lest we accidentally discard the high 32 bits.
+    //
+    // For the case of `pop r8` et al. on 64 bit, `dest_reg_name` contains the
+    // 64-bit register name, and so the injection of `R` acts as a no-op.
+    //
+    // NOTE(pag): See `FusablePopReg32` and `FusablePopReg64`.
+    dest.reg.name[0] = 'R';
+  }
+}
+
 // Decode an instuction.
 bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
                                 Instruction &inst) const {
@@ -952,29 +1155,90 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
   inst.pc = address;
   inst.arch = this;
   inst.arch_name = arch_name;
+  inst.sub_arch_name = kArchInvalid;
   inst.category = Instruction::kCategoryInvalid;
   inst.operands.clear();
 
   xed_decoded_inst_t xedd_;
   xed_decoded_inst_t *xedd = &xedd_;
-  auto mode = 32 == address_size ? &kXEDState32 : &kXEDState64;
-
+  const auto mode = 32 == address_size ? &kXEDState32 : &kXEDState64;
   if (!DecodeXED(xedd, mode, inst_bytes, address)) {
-    LOG(ERROR) << "DecodeXED() could not decode the following opcodes: "
-               << inst.Serialize();
     return false;
   }
 
-  const auto len = xed_decoded_inst_get_length(xedd);
-  if (!inst.bytes.empty() && inst.bytes.data() == inst_bytes.data()) {
-    CHECK_LE(len, inst.bytes.size());
-    inst.bytes.resize(len);
+  auto len = xed_decoded_inst_get_length(xedd);
+  auto extra_len = 0u;  // From fusing.
+  const auto iform = xed_decoded_inst_get_iform_enum(xedd);
+  const auto xedi = xed_decoded_inst_inst(xedd);
+  const auto num_operands = xed_decoded_inst_noperands(xedd);
+  const auto xedv = xed_decoded_inst_operands_const(xedd);
+  const auto isa_set = xed_decoded_inst_get_isa_set(xedd);
+  const auto category = xed_decoded_inst_get_category(xedd);
+
+  // Re-classify this instruction to its sub-architecture.
+  if (IsAVX512(isa_set, category)) {
+    inst.sub_arch_name = 32 == address_size ? kArchX86_AVX512 : kArchAMD64_AVX512;
+  } else if (IsAVX(isa_set, category)) {
+    inst.sub_arch_name = 32 == address_size ? kArchX86_AVX : kArchAMD64_AVX;
+  } else if (xed_classify_avx512(xedd) || xed_classify_avx512_maskop(xedd)) {
+    inst.sub_arch_name = 32 == address_size ? kArchX86_AVX512 : kArchAMD64_AVX512;
+  } else if (xed_classify_avx(xedd)) {
+    inst.sub_arch_name = 32 == address_size ? kArchX86_AVX : kArchAMD64_AVX;
   } else {
-    inst.bytes = inst_bytes.substr(0, len);
+    inst.sub_arch_name = 32 == address_size ? kArchX86 : kArchAMD64;
+  }
+
+  // Make sure we know about
+  if (static_cast<unsigned>(inst.arch_name) <
+      static_cast<unsigned>(inst.sub_arch_name)) {
+    LOG(ERROR)
+        << "Instruction decode of " << xed_iform_enum_t2str(iform)
+        << " requires the " << GetArchName(inst.sub_arch_name)
+        << " architecture semantics to lift but was decoded using the "
+        << GetArchName(inst.arch_name) << " architecture";
+
+    inst.Reset();
+    inst.category = Instruction::kCategoryInvalid;
+    return false;
+  }
+
+  // Look for instruction fusing opportunities. For now, just `call; pop`.
+  const char *is_fused_call_pop = nullptr;
+  if (len < inst_bytes.size() &&
+      (iform == XED_IFORM_CALL_NEAR_RELBRd ||
+       iform == XED_IFORM_CALL_NEAR_RELBRz) &&
+      !xed_decoded_inst_get_branch_displacement(xedd)) {
+    is_fused_call_pop = FusablePopReg32(inst_bytes[len]);
+
+    // Change the instruction length (to influence `next_pc` calculation) and
+    // the instruction category, so that users no longer interpret this
+    // instruction as semantically being a call.
+    if (is_fused_call_pop) {
+      extra_len = 1u;
+      inst.category = Instruction::kCategoryNormal;
+
+    // Look for `pop r8` et al.
+    } else if (64 == address_size &&
+               (2 + len) <= inst_bytes.size() &&
+               inst_bytes[len] == 0x41) {
+      is_fused_call_pop = FusablePopReg64(inst_bytes[len + 1]);
+      if (is_fused_call_pop) {
+        extra_len = 2u;
+        inst.category = Instruction::kCategoryNormal;
+      }
+    }
   }
 
   inst.category = CreateCategory(xedd);
-  inst.next_pc = address + len;
+  inst.next_pc = address + len + extra_len;
+
+  // Fiddle with the size of the bytes.
+  if (!inst.bytes.empty() && inst.bytes.data() == inst_bytes.data()) {
+    CHECK_LE(len + extra_len, inst.bytes.size());
+    inst.bytes.resize(len + extra_len);
+  } else {
+    inst.bytes = inst_bytes.substr(0, len + extra_len);
+  }
 
   // Wrap an instruction in atomic begin/end if it accesses memory with RMW
   // semantics or with a LOCK prefix.
@@ -988,25 +1252,24 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
     DecodeConditionalInterrupt(inst);
   }
 
-  auto iform = xed_decoded_inst_get_iform_enum(xedd);
-
-  inst.function = InstructionFunctionName(xedd);
-
   // Lift the operands. This creates the arguments for us to call the
   // instuction implementation.
-  auto xedi = xed_decoded_inst_inst(xedd);
-  auto num_operands = xed_decoded_inst_noperands(xedd);
-
-  auto xedv = xed_decoded_inst_operands_const(xedd);
   if (xed_operand_values_has_segment_prefix(xedv)) {
     auto reg_name = xed_reg_enum_t2str(xed_operand_values_segment_prefix(xedv));
     inst.segment_override = RegisterByName(reg_name);
   }
 
-  for (auto i = 0U; i < num_operands; ++i) {
-    auto xedo = xed_inst_operand(xedi, i);
-    if (XED_OPVIS_SUPPRESSED != xed_operand_operand_visibility(xedo)) {
-      DecodeOperand(inst, xedd, xedo);
+  if (is_fused_call_pop) {
+    FillFusedCallPopRegOperands(inst, address_size, is_fused_call_pop,
+                                len);
+
+  } else {
+    inst.function = InstructionFunctionName(xedd);
+    for (auto i = 0U; i < num_operands; ++i) {
+      auto xedo = xed_inst_operand(xedi, i);
+      if (XED_OPVIS_SUPPRESSED != xed_operand_operand_visibility(xedo)) {
+        DecodeOperand(inst, xedd, xedo);
+      }
     }
   }
 
@@ -1053,9 +1316,8 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
 
   // All non-control FPU instructions update the last instruction pointer
   // and opcode.
-  if (XED_ISA_SET_X87 == xed_decoded_inst_get_isa_set(xedd) ||
-      XED_ISA_SET_FCMOV == xed_decoded_inst_get_isa_set(xedd) ||
-      XED_CATEGORY_X87_ALU == xed_decoded_inst_get_category(xedd)) {
+  if (XED_ISA_SET_X87 == isa_set || XED_ISA_SET_FCMOV == isa_set ||
+      XED_CATEGORY_X87_ALU == category) {
     auto set_ip_dp = false;
     const auto get_attr = xed_decoded_inst_get_attribute;
     switch (iform) {
@@ -1080,102 +1342,9 @@ bool X86Arch::DecodeInstruction(uint64_t address, std::string_view inst_bytes,
 
   if (xed_decoded_inst_is_xacquire(xedd) ||
       xed_decoded_inst_is_xrelease(xedd)) {
-    LOG(ERROR) << "Ignoring XACQUIRE/XRELEASE prefix at " << std::hex << inst.pc
-               << std::dec;
-  }
-
-  // Make sure we disallow decoding of AVX instructions when running with non-
-  // AVX arch specified. Same thing for AVX512 instructions.
-  switch (xed_decoded_inst_get_isa_set(xedd)) {
-    case XED_ISA_SET_INVALID:
-    case XED_ISA_SET_LAST:
-      LOG(ERROR) << "Instruction decode of " << xed_iform_enum_t2str(iform)
-                 << " failed because XED_ISA_SET_LAST.";
-      return false;
-
-    case XED_ISA_SET_AVX:
-    case XED_ISA_SET_AVX2:
-    case XED_ISA_SET_AVX2GATHER:
-    case XED_ISA_SET_AVXAES:
-    case XED_ISA_SET_AVX_GFNI: {
-      auto supp = kArchAMD64 != inst.arch_name && kArchX86 != inst.arch_name;
-      LOG_IF(ERROR, !supp) << "Instruction decode of "
-                           << xed_iform_enum_t2str(iform)
-                           << " failed because the current arch is specified "
-                           << "as " << GetArchName(inst.arch_name)
-                           << " but what is needed is "
-                           << "the _avx or _avx512 variant.";
-      return supp;
-    }
-
-    case XED_ISA_SET_AVX512BW_128:
-    case XED_ISA_SET_AVX512BW_128N:
-    case XED_ISA_SET_AVX512BW_256:
-    case XED_ISA_SET_AVX512BW_512:
-    case XED_ISA_SET_AVX512BW_KOP:
-    case XED_ISA_SET_AVX512CD_128:
-    case XED_ISA_SET_AVX512CD_256:
-    case XED_ISA_SET_AVX512CD_512:
-    case XED_ISA_SET_AVX512DQ_128:
-    case XED_ISA_SET_AVX512DQ_128N:
-    case XED_ISA_SET_AVX512DQ_256:
-    case XED_ISA_SET_AVX512DQ_512:
-    case XED_ISA_SET_AVX512DQ_KOP:
-    case XED_ISA_SET_AVX512DQ_SCALAR:
-    case XED_ISA_SET_AVX512ER_512:
-    case XED_ISA_SET_AVX512ER_SCALAR:
-    case XED_ISA_SET_AVX512F_128:
-    case XED_ISA_SET_AVX512F_128N:
-    case XED_ISA_SET_AVX512F_256:
-    case XED_ISA_SET_AVX512F_512:
-    case XED_ISA_SET_AVX512F_KOP:
-    case XED_ISA_SET_AVX512F_SCALAR:
-    case XED_ISA_SET_AVX512PF_512:
-    case XED_ISA_SET_AVX512_4FMAPS_512:
-    case XED_ISA_SET_AVX512_4FMAPS_SCALAR:
-    case XED_ISA_SET_AVX512_4VNNIW_512:
-    case XED_ISA_SET_AVX512_BITALG_128:
-    case XED_ISA_SET_AVX512_BITALG_256:
-    case XED_ISA_SET_AVX512_BITALG_512:
-    case XED_ISA_SET_AVX512_GFNI_128:
-    case XED_ISA_SET_AVX512_GFNI_256:
-    case XED_ISA_SET_AVX512_GFNI_512:
-    case XED_ISA_SET_AVX512_IFMA_128:
-    case XED_ISA_SET_AVX512_IFMA_256:
-    case XED_ISA_SET_AVX512_IFMA_512:
-    case XED_ISA_SET_AVX512_VAES_128:
-    case XED_ISA_SET_AVX512_VAES_256:
-    case XED_ISA_SET_AVX512_VAES_512:
-    case XED_ISA_SET_AVX512_VBMI2_128:
-    case XED_ISA_SET_AVX512_VBMI2_256:
-    case XED_ISA_SET_AVX512_VBMI2_512:
-    case XED_ISA_SET_AVX512_VBMI_128:
-    case XED_ISA_SET_AVX512_VBMI_256:
-    case XED_ISA_SET_AVX512_VBMI_512:
-    case XED_ISA_SET_AVX512_VNNI_128:
-    case XED_ISA_SET_AVX512_VNNI_256:
-    case XED_ISA_SET_AVX512_VNNI_512:
-    case XED_ISA_SET_AVX512_VPCLMULQDQ_128:
-    case XED_ISA_SET_AVX512_VPCLMULQDQ_256:
-    case XED_ISA_SET_AVX512_VPCLMULQDQ_512:
-    case XED_ISA_SET_AVX512_VPOPCNTDQ_128:
-    case XED_ISA_SET_AVX512_VPOPCNTDQ_256:
-    case XED_ISA_SET_AVX512_VPOPCNTDQ_512: {
-      const auto supp = kArchAMD64_AVX512 == inst.arch_name ||
-                        kArchX86_AVX512 == inst.arch_name;
-      if (!supp) {
-        LOG(ERROR) << "Instruction decode of " << xed_iform_enum_t2str(iform)
-                   << " failed because the current arch is specified "
-                   << "as " << GetArchName(inst.arch_name)
-                   << " but what is needed is "
-                   << "the _avx512 variant.";
-        inst.Reset();
-        inst.category = Instruction::kCategoryInvalid;
-        return false;
-      }
-      break;
-    }
-    default: break;
+    LOG(WARNING)
+        << "Ignoring XACQUIRE/XRELEASE prefix at " << std::hex << inst.pc
+        << std::dec;
   }
 
   return true;
@@ -1194,13 +1363,12 @@ std::string_view X86Arch::ProgramCounterRegisterName(void) const {
   return kPCNames[IsX86()];
 }
 
-// Populate the `__remill_basic_block` function with variables.
-void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
-                                         llvm::Function *bb_func) const {
-  const auto &dl = module->getDataLayout();
-  CHECK_EQ(sizeof(State), dl.getTypeAllocSize(StateStructType()))
-      << "Mismatch between size of State type for x86/amd64 and what is in "
-      << "the bitcode module";
+// Populate the table of register information.
+void X86Arch::PopulateRegisterTable(void) const {
+
+  impl->reg_by_offset.resize(sizeof(X86State));
+
+  CHECK_NOTNULL(context);
 
   bool has_avx = false;
   bool has_avx512 = false;
@@ -1215,30 +1383,25 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
     default: break;
   }
 
-  auto &context = module->getContext();
-  auto u8 = llvm::Type::getInt8Ty(context);
-  auto u16 = llvm::Type::getInt16Ty(context);
-  auto u32 = llvm::Type::getInt32Ty(context);
-  auto u64 = llvm::Type::getInt64Ty(context);
-  auto f80 = llvm::Type::getX86_FP80Ty(context);
-  auto v128 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 128u / 8u);
-  auto v256 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 256u / 8u);
-  auto v512 = llvm::ArrayType::get(llvm::Type::getInt8Ty(context), 512u / 8u);
-  auto addr = llvm::Type::getIntNTy(context, address_size);
-  auto zero_addr_val = llvm::Constant::getNullValue(addr);
-
-  const auto entry_block = &bb_func->getEntryBlock();
-  llvm::IRBuilder<> ir(entry_block);
+  auto u8 = llvm::Type::getInt8Ty(*context);
+  auto u16 = llvm::Type::getInt16Ty(*context);
+  auto u32 = llvm::Type::getInt32Ty(*context);
+  auto u64 = llvm::Type::getInt64Ty(*context);
+  auto f80 = llvm::Type::getX86_FP80Ty(*context);
+  auto v128 = llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), 128u / 8u);
+  auto v256 = llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), 256u / 8u);
+  auto v512 = llvm::ArrayType::get(llvm::Type::getInt8Ty(*context), 512u / 8u);
+  auto addr = llvm::Type::getIntNTy(*context, address_size);
 
 #define OFFSET_OF(type, access) \
   (reinterpret_cast<uintptr_t>(&reinterpret_cast<const volatile char &>( \
       static_cast<type *>(nullptr)->access)))
 
 #define REG(name, access, type) \
-  AddRegister(#name, type, OFFSET_OF(State, access), nullptr)
+  AddRegister(#name, type, OFFSET_OF(X86State, access), nullptr)
 
 #define SUB_REG(name, access, type, parent_reg_name) \
-  AddRegister(#name, type, OFFSET_OF(State, access), #parent_reg_name)
+  AddRegister(#name, type, OFFSET_OF(X86State, access), #parent_reg_name)
 
 #define SUB_REG64(name, access, type, parent_reg_name) \
   if (64 == address_size) { \
@@ -1343,17 +1506,11 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
     SUB_REG(R15B, gpr.r15.byte.low, u8, R15W);
   }
 
-  const auto pc_arg = NthArgument(bb_func, kPCArgNum);
-  const auto state_ptr_arg = NthArgument(bb_func, kStatePointerArgNum);
-  ir.CreateStore(pc_arg, ir.CreateAlloca(addr, nullptr, "NEXT_PC"));
-
   if (64 == address_size) {
     SUB_REG(PC, gpr.rip.qword, u64, RIP);
   } else {
     SUB_REG(PC, gpr.rip.dword, u32, EIP);
   }
-
-  (void) this->RegisterByName("PC")->AddressOf(state_ptr_arg, ir);
 
   REG(SS, seg.ss.flat, u16);
   REG(ES, seg.es.flat, u16);
@@ -1362,12 +1519,7 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
   REG(DS, seg.ds.flat, u16);
   REG(CS, seg.cs.flat, u16);
 
-  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "CSBASE"));
-
   if (64 == address_size) {
-    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "SSBASE"));
-    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "ESBASE"));
-    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "DSBASE"));
     REG(GSBASE, addr.gs_base.qword, addr);
     REG(FSBASE, addr.fs_base.qword, addr);
 
@@ -1563,6 +1715,36 @@ void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
   //#if 64 == ADDRESS_SIZE_BITS
   //  REG(CR8, lat);
   //#endif
+}
+
+// Populate the `__remill_basic_block` function with variables.
+void X86Arch::PopulateBasicBlockFunction(llvm::Module *module,
+                                         llvm::Function *bb_func) const {
+  const auto &dl = module->getDataLayout();
+  CHECK_EQ(sizeof(State), dl.getTypeAllocSize(StateStructType()))
+      << "Mismatch between size of State type for x86/amd64 and what is in "
+      << "the bitcode module";
+
+  auto &context = module->getContext();
+  auto addr = llvm::Type::getIntNTy(context, address_size);
+  auto zero_addr_val = llvm::Constant::getNullValue(addr);
+
+  const auto entry_block = &bb_func->getEntryBlock();
+  llvm::IRBuilder<> ir(entry_block);
+
+  const auto pc_arg = NthArgument(bb_func, kPCArgNum);
+  const auto state_ptr_arg = NthArgument(bb_func, kStatePointerArgNum);
+  ir.CreateStore(pc_arg, ir.CreateAlloca(addr, nullptr, "NEXT_PC"));
+
+  (void) this->RegisterByName("PC")->AddressOf(state_ptr_arg, ir);
+
+  ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "CSBASE"));
+
+  if (64 == address_size) {
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "SSBASE"));
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "ESBASE"));
+    ir.CreateStore(zero_addr_val, ir.CreateAlloca(addr, nullptr, "DSBASE"));
+  }
 }
 
 }  // namespace

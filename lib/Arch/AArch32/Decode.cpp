@@ -2410,13 +2410,18 @@ static bool TryMoveSpecialRegisterAndHintsI(Instruction &inst, uint32_t bits) {
     return false;
   }
 
+  if (strstr(instruction, "NOP") || strstr(instruction, "HINT")) {
+    inst.category = Instruction::kCategoryNoOp;
+  } else {
+    inst.category = Instruction::kCategoryNormal;
+  }
+
   // A NOP is still conditional:
   //  if ConditionPassed() then
   //      EncodingSpecificOperations();
   //      // Do nothing
   inst.function = instruction;
   DecodeCondition(inst, enc.cond);
-  inst.category = Instruction::kCategoryNormal;
   return true;
 }
 
@@ -3572,6 +3577,7 @@ bool AArch32Arch::DecodeInstruction(uint64_t address,
   inst.has_branch_taken_delay_slot = false;
   inst.has_branch_not_taken_delay_slot = false;
   inst.arch_name = arch_name;
+  inst.sub_arch_name = arch_name;  // TODO(pag): Thumb.
   inst.arch = this;
   inst.category = Instruction::kCategoryInvalid;
   inst.operands.clear();
