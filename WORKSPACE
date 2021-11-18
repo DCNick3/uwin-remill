@@ -29,19 +29,14 @@ git_repository(
 
 git_repository(
     name = "rules_cc_toolchain",
-    commit = "e9108c776df6c919b4c56ca8ba9fe26f98175c52",
+    commit = "072cf8358ee3d129ee44ecd38cdd878c2a7944b5",
     remote = "https://github.com/DCNick3/bazel_rules_cc_toolchain",
-    shallow_since = "1637068367 +0300",
+      shallow_since = "1637096381 +0300",
 )
 
-load(
-    "@rules_cc_toolchain//config:rules_cc_toolchain_config_repository.bzl",
-    "rules_cc_toolchain_config",
-)
+load("@rules_cc_toolchain//config:rules_cc_toolchain_config_repository.bzl", "rules_cc_toolchain_config")
 
-rules_cc_toolchain_config(
-    name = "rules_cc_toolchain_config"
-)
+rules_cc_toolchain_config(name = "rules_cc_toolchain_config")
 
 load("@bazel_skylib//:workspace.bzl", "bazel_skylib_workspace")
 
@@ -57,7 +52,6 @@ register_cc_toolchains()
 
 
 
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 http_archive(
     name = "rules_python",
     url = "https://github.com/bazelbuild/rules_python/releases/download/0.5.0/rules_python-0.5.0.tar.gz",

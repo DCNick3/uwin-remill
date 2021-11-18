@@ -44,6 +44,9 @@ class IntrinsicTable {
   // OS interaction.
   llvm::Function *const async_hyper_call;
 
+  // A call into uwin native code/
+  llvm::Function *const uwin_external_call;
+
   // Memory read intrinsics.
   llvm::Function *const read_memory_8;
   llvm::Function *const read_memory_16;

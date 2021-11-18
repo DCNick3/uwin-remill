@@ -61,6 +61,18 @@ IF_32BIT(DEF_ISEL(CALL_NEAR_GPRv_16) = CALL<R16>;)
 IF_32BIT(DEF_ISEL(CALL_NEAR_GPRv_32) = CALL<R32>;)
 IF_64BIT(DEF_ISEL(CALL_NEAR_GPRv_64) = CALL<R64>;)
 
+IF_32BIT(DEF_SEM(DoCALL_FAR_PTRp_IMMw, I32 addr, I16 seg) {
+  auto seg_val = Read(seg);
+  // uwin uses a special "magic" 0x7775 segment for native dll calls
+  if (seg_val == 0x7775) {
+    return __remill_uwin_external_call(state, memory, Read(addr));
+  } else {
+    return __remill_error(state, Read(REG_PC), memory);
+  }
+});
+
+IF_32BIT(DEF_ISEL(CALL_FAR_PTRp_IMMw_32) = DoCALL_FAR_PTRp_IMMw;)
+
 /*
 352 CALL_FAR CALL_FAR_MEMp2 CALL BASE I86 ATTRIBUTES: FAR_XFER FIXED_BASE1 NOTSX SCALABLE STACKPUSH1
 353 CALL_FAR CALL_FAR_PTRp_IMMw CALL BASE I86 ATTRIBUTES: FAR_XFER FIXED_BASE0 NOTSX SCALABLE STACKPUSH0

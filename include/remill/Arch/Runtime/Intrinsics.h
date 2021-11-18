@@ -110,6 +110,8 @@ __remill_write_memory_f64(Memory *, addr_t, float64_t);
 
 [[gnu::used]] extern Memory *__remill_sync_hyper_call(State &, Memory *,
                                                       SyncHyperCall::Name);
+[[gnu::used]] extern Memory *__remill_uwin_external_call(State &, Memory *,
+                                                      uint32_t external_address);
 
 // Memory barriers types:
 //  http://g.oswego.edu/dl/jmm/cookbook.html

@@ -74,6 +74,9 @@ DEFINE_string(slice_inputs, "",
 DEFINE_string(slice_outputs, "",
               "Comma-separated list of registers to treat as outputs.");
 
+DEFINE_bool(optimize, true,
+              "Whether to optimize the module.");
+
 using Memory = std::map<uint64_t, uint8_t>;
 
 // Unhexlify the data passed to `--bytes`, and fill in `memory` with each
@@ -274,7 +277,9 @@ int main(int argc, char *argv[]) {
   // that we actually lifted.
   remill::OptimizationGuide guide = {};
   guide.eliminate_dead_stores = true;
-  remill::OptimizeModule(arch, module, manager.traces, guide);
+  if (FLAGS_optimize) {
+    remill::OptimizeModule(arch, module, manager.traces, guide);
+  }
 
   // Create a new module in which we will move all the lifted functions. Prepare
   // the module for code of this architecture, i.e. set the data layout, triple,

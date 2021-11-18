@@ -81,6 +81,9 @@ IntrinsicTable::IntrinsicTable(llvm::Module *module)
       // OS interaction.
       async_hyper_call(FindIntrinsic(module, "__remill_async_hyper_call")),
 
+      // A call into uwin native code
+      uwin_external_call(FindIntrinsic(module, "__remill_uwin_external_call")),
+
       // Memory access.
       read_memory_8(SetMemoryReadNone(FindPureIntrinsic(module, "__remill_read_memory_8"))),
       read_memory_16(SetMemoryReadNone(FindPureIntrinsic(module, "__remill_read_memory_16"))),

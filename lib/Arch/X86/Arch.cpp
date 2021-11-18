@@ -245,6 +245,20 @@ static Instruction::Category CreateCategory(const xed_decoded_inst_t *xedd) {
 
   } else if (IsDirectJumpFar(xedd) || IsIndirectJumpFar(xedd) ||
              IsDirectFunctionCallFar(xedd) || IsIndirectFunctionCallFar(xedd)) {
+    // filter out "special" uwin instuctions: those that call into native code
+    // those are represented by a direct far call (XED_IFORM_CALL_FAR_PTRp_IMMw form) with segment set to 0x7775 (uw in ASCII)
+    // we transform it into "normal" instruction, because that's what it is for remill, nothing happening regarding the control flow
+
+    if (IsDirectFunctionCallFar(xedd) &&
+      xedd->_inst->_iform_enum == XED_IFORM_CALL_FAR_PTRp_IMMw) {
+        const auto xedi = xed_decoded_inst_inst(xedd);
+        auto val = xed_decoded_inst_get_unsigned_immediate(xedd);
+
+        if (val == 0x7775)
+          return Instruction::kCategoryNormal;
+        // else - I don't know what to do
+        // treating it as kCategoryAsyncHyperCall seems broken but I don't know better
+      }
     return Instruction::kCategoryAsyncHyperCall;
 
   } else if (IsNoOp(xedd)) {
