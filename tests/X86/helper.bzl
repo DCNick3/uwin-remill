@@ -1,5 +1,5 @@
 def helper(name, bits, avx, avx512):
-  bc_module(
+  bc_runtime(
     name = name,
     basic_block_src = "BasicBlock.cpp",
     instructions_src = "Instructions.cpp",
