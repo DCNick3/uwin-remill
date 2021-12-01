@@ -13,3 +13,5 @@ build --output_filter='^(?!@com_github_intelxed_xed//).*'
 build --experimental_sandbox_base=/dev/shm
 
 build --features=c++17
+
+build --experimental_strict_action_env
