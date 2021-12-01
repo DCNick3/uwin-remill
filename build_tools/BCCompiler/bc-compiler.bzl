@@ -158,8 +158,7 @@ def _bc_object_impl(ctx):
     clang = ctx.executable._clang
     common_deps = depset([], transitive = [additional_deps, sysroot_deps, clang_deps],)
     additional_flags = ["-D%s=%s" % kv for kv in ctx.attr.definitions.items()]
-    additional_flags.append("-O3")
-    additional_flags.append("-g3")
+    additional_flags += ctx.attr.opts
 
     _compile_bc_obj(ctx, ctx.file.src, output,
         additional_flags = additional_flags,
@@ -259,6 +258,9 @@ _bc_object = rule(
             allow_single_file = [".cpp"],
             doc = "Files to be fed into the compiler to produce bitcode object",
         ),
+        "opts": attr.string_list(
+            doc = "Additional flags to pass to clang during compilation",
+        ),
         "additional_deps": attr.label_list(
             mandatory = True,
             doc = "Dependencies to be injected into the compiler invocation (useful for files included and such)",
@@ -310,7 +312,7 @@ def bc_runtime(name, instructions_src, basic_block_src, additional_deps, definit
         sysroot_deps = sysroot_deps,
     )
 
-def bc_object(name, src, additional_deps, definitions, include_directories, target):
+def bc_object(name, src, additional_deps, definitions, include_directories, target, opts):
     sysroot, sysroot_deps = _select_sysroot(target)
 
     _bc_object(
@@ -320,6 +322,7 @@ def bc_object(name, src, additional_deps, definitions, include_directories, targ
         definitions = definitions,
         include_directories = include_directories,
         target = target,
+        opts = opts,
         sysroot = sysroot,
         sysroot_deps = sysroot_deps,
     )
